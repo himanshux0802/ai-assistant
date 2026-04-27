@@ -1,7 +1,7 @@
+"use client";
+
 import type * as React from "react";
-import { MessagesSquare } from "lucide-react";
-import { GitHubIcon } from "@/components/icons/github";
-import Link from "next/link";
+import { BotIcon, SettingsIcon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -13,63 +13,59 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { ThreadList } from "@/components/assistant-ui/thread-list";
+import { SettingsDialog } from "@/components/assistant-ui/settings-dialog";
+import { useState } from "react";
 
 export function ThreadListSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (
-    <Sidebar {...props}>
-      <SidebarHeader className="aui-sidebar-header mb-2 border-b">
-        <div className="aui-sidebar-header-content flex items-center justify-between">
+    <>
+      <Sidebar {...props}>
+        <SidebarHeader className="aui-sidebar-header mb-2 border-b">
+          <div className="aui-sidebar-header-content flex items-center justify-between">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton size="lg">
+                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                    <BotIcon className="size-4" />
+                  </div>
+                  <div className="mr-6 flex flex-col gap-0.5 leading-none">
+                    <span className="font-semibold">Skyler AI</span>
+                  </div>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </div>
+        </SidebarHeader>
+        <SidebarContent className="aui-sidebar-content px-2">
+          <ThreadList />
+        </SidebarContent>
+        <SidebarRail />
+        <SidebarFooter className="aui-sidebar-footer border-t">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild>
-                <Link
-                  href="https://assistant-ui.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <div className="aui-sidebar-header-icon-wrapper flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                    <MessagesSquare className="aui-sidebar-header-icon size-4" />
-                  </div>
-                  <div className="aui-sidebar-header-heading mr-6 flex flex-col gap-0.5 leading-none">
-                    <span className="aui-sidebar-header-title font-semibold">
-                      assistant-ui
-                    </span>
-                  </div>
-                </Link>
+              <SidebarMenuButton
+                size="lg"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                  <SettingsIcon className="size-4" />
+                </div>
+                <div className="flex flex-col gap-0.5 leading-none">
+                  <span className="font-semibold">Settings</span>
+                  <span className="text-muted-foreground text-xs">
+                    System prompt & more
+                  </span>
+                </div>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-        </div>
-      </SidebarHeader>
-      <SidebarContent className="aui-sidebar-content px-2">
-        <ThreadList />
-      </SidebarContent>
-      <SidebarRail />
-      <SidebarFooter className="aui-sidebar-footer border-t">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <Link
-                href="https://github.com/assistant-ui/assistant-ui"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <div className="aui-sidebar-footer-icon-wrapper flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                  <GitHubIcon className="aui-sidebar-footer-icon size-4" />
-                </div>
-                <div className="aui-sidebar-footer-heading flex flex-col gap-0.5 leading-none">
-                  <span className="aui-sidebar-footer-title font-semibold">
-                    GitHub
-                  </span>
-                  <span>View Source</span>
-                </div>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
-    </Sidebar>
+        </SidebarFooter>
+      </Sidebar>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+    </>
   );
 }

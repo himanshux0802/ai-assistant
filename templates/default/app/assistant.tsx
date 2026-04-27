@@ -21,18 +21,11 @@ import {
 import { ThreadListSidebar } from "@/components/assistant-ui/threadlist-sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import {
   ThinkingModeProvider,
   useThinkingMode,
 } from "@/hooks/use-thinking-mode";
-import { useMemo } from "react";
+import { SettingsProvider, useSettings } from "@/hooks/use-settings";
+import { useMemo, useRef } from "react";
 
 const attachmentAdapter = new CompositeAttachmentAdapter([
   new SimpleImageAttachmentAdapter(),
@@ -41,6 +34,10 @@ const attachmentAdapter = new CompositeAttachmentAdapter([
 
 const AssistantInner = () => {
   const thinkingMode = useThinkingMode();
+  const { systemPromptEnabled, systemPrompt } = useSettings();
+  const threadIdRef = useRef(
+    `thread_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  );
 
   const transport = useMemo(
     () =>
@@ -48,9 +45,14 @@ const AssistantInner = () => {
         api: "/api/chat",
         headers: {
           "x-enable-thinking": thinkingMode.enabled ? "1" : "0",
+          "x-system-prompt":
+            systemPromptEnabled && systemPrompt
+              ? encodeURIComponent(systemPrompt)
+              : "",
+          "x-thread-id": threadIdRef.current,
         },
       }),
-    [thinkingMode.enabled],
+    [thinkingMode.enabled, systemPromptEnabled, systemPrompt],
   );
 
   const runtime = useChatRuntime({
@@ -65,26 +67,12 @@ const AssistantInner = () => {
           <div className="flex h-dvh w-full pr-0.5">
             <ThreadListSidebar />
             <SidebarInset>
-              <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
                 <SidebarTrigger />
                 <Separator orientation="vertical" className="mr-2 h-4" />
-                <Breadcrumb>
-                  <BreadcrumbList>
-                    <BreadcrumbItem className="hidden md:block">
-                      <BreadcrumbLink
-                        href="https://www.assistant-ui.com/docs/getting-started"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Build Your Own ChatGPT UX
-                      </BreadcrumbLink>
-                    </BreadcrumbItem>
-                    <BreadcrumbSeparator className="hidden md:block" />
-                    <BreadcrumbItem>
-                      <BreadcrumbPage>Starter Template</BreadcrumbPage>
-                    </BreadcrumbItem>
-                  </BreadcrumbList>
-                </Breadcrumb>
+                <span className="font-medium text-muted-foreground text-sm">
+                  Skyler AI
+                </span>
               </header>
               <div className="flex-1 overflow-hidden">
                 <Thread />
@@ -99,8 +87,10 @@ const AssistantInner = () => {
 
 export const Assistant = () => {
   return (
-    <ThinkingModeProvider>
-      <AssistantInner />
-    </ThinkingModeProvider>
+    <SettingsProvider>
+      <ThinkingModeProvider>
+        <AssistantInner />
+      </ThinkingModeProvider>
+    </SettingsProvider>
   );
 };

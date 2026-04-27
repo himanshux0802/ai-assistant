@@ -5,6 +5,10 @@ import {
   createUIMessageStreamResponse,
   type UIMessage,
 } from "ai";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const HISTORY_DIR = path.join(process.cwd(), "..", "chat_history");
 
 let partCounter = 0;
 function nextId() {
@@ -21,6 +25,11 @@ function extractBase64(data: unknown): string {
 export async function POST(req: Request) {
   const enableThinking = req.headers.get("x-enable-thinking") === "1";
 
+  const customSystemPrompt = req.headers.get("x-system-prompt");
+  const systemPromptFromHeader = customSystemPrompt
+    ? decodeURIComponent(customSystemPrompt)
+    : "";
+
   const {
     messages,
     system,
@@ -31,9 +40,12 @@ export async function POST(req: Request) {
   } = await req.json();
 
   const modelMessages = await convertToModelMessages(messages);
+  const effectiveSystem = systemPromptFromHeader || system;
 
   const allMessages = [
-    ...(system ? [{ role: "system" as const, content: system }] : []),
+    ...(effectiveSystem
+      ? [{ role: "system" as const, content: effectiveSystem }]
+      : []),
     ...modelMessages.map((m) => {
       if (typeof m.content === "string") {
         return { role: m.role, content: m.content };
@@ -259,6 +271,52 @@ export async function POST(req: Request) {
         if (enableThinking) endReasoning();
         if (textStarted) {
           writer.write({ type: "text-end", id: textId });
+        }
+
+        // Auto-save chat history
+        try {
+          await fs.mkdir(HISTORY_DIR, { recursive: true });
+          const threadId =
+            req.headers.get("x-thread-id") || `thread_${Date.now()}`;
+          const firstUserMsg = messages.find((m) => m.role === "user");
+          const title = firstUserMsg
+            ? (Array.isArray(firstUserMsg.parts)
+                ? (
+                    firstUserMsg.parts.find(
+                      (p: any) => p.type === "text",
+                    ) as any
+                  )?.text
+                : "New Chat"
+              )?.slice(0, 80) || "New Chat"
+            : "New Chat";
+
+          const filePath = path.join(HISTORY_DIR, `${threadId}.json`);
+          const now = new Date().toISOString();
+          let existing: any = {};
+          try {
+            existing = JSON.parse(await fs.readFile(filePath, "utf-8"));
+          } catch {
+            // new thread
+          }
+          const saved = {
+            id: threadId,
+            title: existing.title || title,
+            messages: messages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: Array.isArray(m.parts)
+                ? m.parts
+                    .filter((p: any) => p.type === "text")
+                    .map((p: any) => p.text)
+                    .join("")
+                : "",
+            })),
+            createdAt: existing.createdAt || now,
+            updatedAt: now,
+          };
+          await fs.writeFile(filePath, JSON.stringify(saved, null, 2));
+        } catch {
+          // silently fail — don't break the response
         }
       },
     }),
