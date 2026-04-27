@@ -4,7 +4,7 @@ import {
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
-import { Reasoning } from "@/components/assistant-ui/reasoning";
+import { Reasoning, ReasoningGroup } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,12 @@ import {
   SuggestionPrimitive,
   ThreadPrimitive,
   useAuiState,
+  useMessageTiming,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BrainIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -33,8 +35,10 @@ import {
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  ZapIcon,
 } from "lucide-react";
 import type { FC } from "react";
+import { useThinkingMode } from "@/hooks/use-thinking-mode";
 
 export const Thread: FC = () => {
   return (
@@ -166,9 +170,35 @@ const Composer: FC = () => {
 };
 
 const ComposerAction: FC = () => {
+  const { enabled: thinking, toggle: toggleThinking } = useThinkingMode();
+
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <ComposerAddAttachment />
+      <div className="flex items-center gap-1">
+        <ComposerAddAttachment />
+        <button
+          type="button"
+          onClick={toggleThinking}
+          className={cn(
+            "flex items-center gap-1 rounded-full px-2.5 py-1 font-medium text-xs transition-all",
+            thinking
+              ? "border border-primary/30 bg-primary/10 text-primary"
+              : "border border-transparent text-muted-foreground hover:bg-muted",
+          )}
+          title={
+            thinking
+              ? "Thinking mode ON — click to turn off"
+              : "Quick mode — click to enable thinking"
+          }
+        >
+          {thinking ? (
+            <BrainIcon className="size-3.5" />
+          ) : (
+            <ZapIcon className="size-3.5" />
+          )}
+          {thinking ? "Think" : "Quick"}
+        </button>
+      </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
           <TooltipIconButton
@@ -225,26 +255,41 @@ const AssistantMessage: FC = () => {
         data-slot="aui_assistant-message-content"
         className="wrap-break-word px-2 text-foreground leading-relaxed"
       >
-        <MessagePrimitive.Parts>
-          {({ part }) => {
-            if (part.type === "text") return <MarkdownText />;
-            if (part.type === "reasoning") return <Reasoning {...part} />;
-            if (part.type === "tool-call")
-              return part.toolUI ?? <ToolFallback {...part} />;
-            return null;
+        <MessagePrimitive.Parts
+          components={{
+            Text: MarkdownText,
+            Reasoning: Reasoning,
+            ReasoningGroup: ReasoningGroup,
+            tools: { Fallback: ToolFallback },
           }}
-        </MessagePrimitive.Parts>
+        />
         <MessageError />
       </div>
 
       <div
         data-slot="aui_assistant-message-footer"
-        className={cn("ml-2 flex items-center", ACTION_BAR_HEIGHT)}
+        className={cn("ml-2 flex items-center gap-2", ACTION_BAR_HEIGHT)}
       >
         <BranchPicker />
+        <GenerationTime />
         <AssistantActionBar />
       </div>
     </MessagePrimitive.Root>
+  );
+};
+
+const GenerationTime: FC = () => {
+  const timing = useMessageTiming();
+  const isRunning = useAuiState((s) => s.message.status?.type === "running");
+  if (isRunning || !timing?.totalStreamTime) return null;
+
+  const seconds = (timing.totalStreamTime / 1000).toFixed(1);
+  const tps = timing.tokensPerSecond?.toFixed(1);
+
+  return (
+    <span className="text-muted-foreground text-xs">
+      {seconds}s{tps ? ` · ${tps} tok/s` : ""}
+    </span>
   );
 };
 

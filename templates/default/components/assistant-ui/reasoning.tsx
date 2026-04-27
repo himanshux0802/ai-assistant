@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import {
@@ -125,7 +125,11 @@ function ReasoningTrigger({
   active?: boolean;
   duration?: number;
 }) {
-  const durationText = duration ? ` (${duration}s)` : "";
+  const label = active
+    ? "Thinking"
+    : duration
+      ? `Thought for ${duration}s`
+      : "Thought";
 
   return (
     <CollapsibleTrigger
@@ -138,20 +142,30 @@ function ReasoningTrigger({
     >
       <BrainIcon
         data-slot="reasoning-trigger-icon"
-        className="aui-reasoning-trigger-icon size-4 shrink-0"
+        className={cn(
+          "aui-reasoning-trigger-icon size-4 shrink-0",
+          active && "animate-pulse",
+        )}
       />
       <span
         data-slot="reasoning-trigger-label"
-        className="aui-reasoning-trigger-label-wrapper relative inline-block leading-none"
+        className="aui-reasoning-trigger-label-wrapper relative inline-flex items-center gap-0.5 leading-none"
       >
-        <span>Reasoning{durationText}</span>
+        <span>{label}</span>
+        {active ? (
+          <span className="ml-0.5 inline-flex gap-px">
+            <span className="thinking-dot text-muted-foreground">.</span>
+            <span className="thinking-dot text-muted-foreground">.</span>
+            <span className="thinking-dot text-muted-foreground">.</span>
+          </span>
+        ) : null}
         {active ? (
           <span
             aria-hidden
             data-slot="reasoning-trigger-shimmer"
             className="aui-reasoning-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
           >
-            Reasoning{durationText}
+            {label}
           </span>
         ) : null}
       </span>
@@ -233,9 +247,38 @@ const ReasoningGroupImpl: ReasoningGroupComponent = ({
     return lastIndex >= startIndex && lastIndex <= endIndex;
   });
 
+  const [manualToggle, setManualToggle] = useState<boolean | null>(null);
+  const wasStreaming = useRef(false);
+  const thinkStartTime = useRef<number | null>(null);
+  const [thinkDuration, setThinkDuration] = useState<number | undefined>();
+
+  useEffect(() => {
+    if (isReasoningStreaming) {
+      wasStreaming.current = true;
+      if (!thinkStartTime.current) {
+        thinkStartTime.current = Date.now();
+      }
+      setManualToggle(null);
+    } else if (wasStreaming.current) {
+      wasStreaming.current = false;
+      if (thinkStartTime.current) {
+        setThinkDuration(
+          Math.round((Date.now() - thinkStartTime.current) / 1000),
+        );
+        thinkStartTime.current = null;
+      }
+      setManualToggle(false);
+    }
+  }, [isReasoningStreaming]);
+
+  const isOpen = manualToggle ?? isReasoningStreaming;
+
   return (
-    <ReasoningRoot defaultOpen={isReasoningStreaming}>
-      <ReasoningTrigger active={isReasoningStreaming} />
+    <ReasoningRoot open={isOpen} onOpenChange={(open) => setManualToggle(open)}>
+      <ReasoningTrigger
+        active={isReasoningStreaming}
+        duration={thinkDuration}
+      />
       <ReasoningContent aria-busy={isReasoningStreaming}>
         <ReasoningText>{children}</ReasoningText>
       </ReasoningContent>

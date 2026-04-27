@@ -76,7 +76,9 @@ async function restoreReferenceDirectives(program: ts.Program): Promise<void> {
     const typeRefs = sourceFile.typeReferenceDirectives;
     if (pathRefs.length === 0 && typeRefs.length === 0) continue;
 
-    const srcRelative = path.relative(process.cwd(), sourceFile.fileName);
+    const srcRelative = path
+      .relative(process.cwd(), sourceFile.fileName)
+      .replace(/\\/g, "/");
     if (!srcRelative.startsWith("src/")) continue;
 
     const dtsPath = srcRelative
