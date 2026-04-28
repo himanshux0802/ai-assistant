@@ -24,6 +24,7 @@ function extractBase64(data: unknown): string {
 
 export async function POST(req: Request) {
   const enableThinking = req.headers.get("x-enable-thinking") === "1";
+  console.log("[chat] enableThinking =", enableThinking, "| header =", req.headers.get("x-enable-thinking"), "| sending to LM Studio: enable_thinking =", enableThinking);
 
   const customSystemPrompt = req.headers.get("x-system-prompt");
   const systemPromptFromHeader = customSystemPrompt
@@ -97,180 +98,114 @@ export async function POST(req: Request) {
     }),
   ];
 
-  const response = await fetch(
-    `${process.env.OPENAI_BASE_URL}/chat/completions`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: process.env.LM_STUDIO_MODEL,
-        messages: allMessages,
-        stream: true,
-      }),
-    },
-  );
-
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
-        const reader = response.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let reasoningId = "";
-        let reasoningStarted = false;
-        let reasoningEnded = false;
-        let textId = "";
-        let textStarted = false;
-        let insideThinkTag = false;
-        let pendingContent = "";
+        const response = await fetch(
+          `${process.env.OPENAI_BASE_URL}/chat/completions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: process.env.LM_STUDIO_MODEL,
+              messages: allMessages,
+              stream: enableThinking,
+              chat_template_kwargs: { enable_thinking: enableThinking },
+            }),
+          },
+        );
 
-        function emitText(text: string) {
-          if (!text) return;
-          if (!textStarted) {
-            textStarted = true;
-            textId = nextId();
+        // Quick mode: stream false, no reasoning
+        if (!enableThinking) {
+          const json = await response.json();
+          let content = json.choices?.[0]?.message?.content || "";
+          content = content.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim();
+          if (content) {
+            const textId = nextId();
             writer.write({ type: "text-start", id: textId });
+            writer.write({ type: "text-delta", id: textId, delta: content });
+            writer.write({ type: "text-end", id: textId });
           }
-          writer.write({ type: "text-delta", id: textId, delta: text });
-        }
+        } else {
+          // Thinking mode: stream true, show reasoning live
+          if (!response.body) return;
 
-        function startReasoning() {
-          if (!reasoningStarted) {
-            reasoningStarted = true;
-            reasoningId = nextId();
-            writer.write({ type: "reasoning-start", id: reasoningId });
-          }
-        }
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let reasoningId: string | null = null;
+          let textId: string | null = null;
+          let insideThink = false;
 
-        function emitReasoning(text: string) {
-          if (!text) return;
-          startReasoning();
-          writer.write({
-            type: "reasoning-delta",
-            id: reasoningId,
-            delta: text,
-          });
-        }
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-        function endReasoning() {
-          if (reasoningStarted && !reasoningEnded) {
-            reasoningEnded = true;
-            writer.write({ type: "reasoning-end", id: reasoningId });
-          }
-        }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
 
-        function processContent(content: string) {
-          pendingContent += content;
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data: ")) continue;
+              const data = trimmed.slice(6);
+              if (data === "[DONE]") continue;
 
-          while (pendingContent.length > 0) {
-            if (!insideThinkTag) {
-              const thinkStart = pendingContent.indexOf("<think>");
-              if (thinkStart === -1) {
-                const partialIdx = pendingContent.lastIndexOf("<");
-                if (
-                  partialIdx !== -1 &&
-                  partialIdx > pendingContent.length - 8
-                ) {
-                  const safe = pendingContent.slice(0, partialIdx);
-                  if (safe) emitText(safe);
-                  pendingContent = pendingContent.slice(partialIdx);
-                  return;
-                }
-                emitText(pendingContent);
-                pendingContent = "";
-                return;
+              let parsed: any;
+              try {
+                parsed = JSON.parse(data);
+              } catch {
+                continue;
               }
-              if (thinkStart > 0) {
-                emitText(pendingContent.slice(0, thinkStart));
-              }
-              insideThinkTag = true;
-              pendingContent = pendingContent.slice(thinkStart + 7);
-              if (enableThinking) startReasoning();
-            } else {
-              const thinkEnd = pendingContent.indexOf("</think>");
-              if (thinkEnd === -1) {
-                const partialIdx = pendingContent.lastIndexOf("<");
-                if (
-                  partialIdx !== -1 &&
-                  partialIdx > pendingContent.length - 9
-                ) {
-                  const safe = pendingContent.slice(0, partialIdx);
-                  if (enableThinking && safe) emitReasoning(safe);
-                  pendingContent = pendingContent.slice(partialIdx);
-                  return;
-                }
-                if (enableThinking) emitReasoning(pendingContent);
-                pendingContent = "";
-                return;
-              }
-              if (enableThinking && thinkEnd > 0) {
-                emitReasoning(pendingContent.slice(0, thinkEnd));
-              }
-              insideThinkTag = false;
-              if (enableThinking) endReasoning();
-              pendingContent = pendingContent.slice(thinkEnd + 8);
-            }
-          }
-        }
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data: ")) continue;
-            const data = trimmed.slice(6);
-            if (data === "[DONE]") break;
-
-            try {
-              const parsed = JSON.parse(data);
               const delta = parsed.choices?.[0]?.delta;
               if (!delta) continue;
 
-              // Handle dedicated reasoning_content field (DeepSeek-style / LM Studio reasoning toggle)
-              if (delta.reasoning_content) {
-                if (enableThinking) {
-                  emitReasoning(delta.reasoning_content);
+              const chunk: string = delta.content || "";
+              if (!chunk) continue;
+
+              if (chunk.includes("<think>")) {
+                insideThink = true;
+                if (!reasoningId) {
+                  reasoningId = nextId();
+                  writer.write({ type: "reasoning-start", id: reasoningId });
                 }
-                // When thinking is off, silently discard
+                continue;
               }
 
-              if (delta.content) {
-                if (delta.reasoning_content !== undefined) {
-                  // Model uses separate reasoning_content — content is the actual answer
-                  if (enableThinking) endReasoning();
-                  emitText(delta.content);
-                } else {
-                  // Model may use <think> tags in content
-                  processContent(delta.content);
+              if (chunk.includes("</think>")) {
+                insideThink = false;
+                if (reasoningId) {
+                  writer.write({ type: "reasoning-end", id: reasoningId });
+                  reasoningId = null;
                 }
+                continue;
               }
-            } catch {
-              // skip malformed chunks
+
+              if (insideThink) {
+                if (reasoningId) {
+                  writer.write({ type: "reasoning-delta", id: reasoningId, delta: chunk });
+                }
+                continue;
+              }
+
+              if (!textId) {
+                textId = nextId();
+                writer.write({ type: "text-start", id: textId });
+              }
+              writer.write({ type: "text-delta", id: textId, delta: chunk });
             }
           }
-        }
 
-        // Flush remaining
-        if (pendingContent) {
-          if (insideThinkTag && enableThinking) {
-            emitReasoning(pendingContent);
-          } else if (!insideThinkTag) {
-            emitText(pendingContent);
+          if (reasoningId) {
+            writer.write({ type: "reasoning-end", id: reasoningId });
           }
-        }
-
-        if (enableThinking) endReasoning();
-        if (textStarted) {
-          writer.write({ type: "text-end", id: textId });
+          if (textId) {
+            writer.write({ type: "text-end", id: textId });
+          }
         }
 
         // Auto-save chat history

@@ -1,21 +1,28 @@
-# LM Studio Jinja Chat Template (Qwen3 — Thinking Toggle)
+# LM Studio Jinja Chat Template (Qwen3 — API-Controlled Thinking)
 
-## How to Use
+## How It Works
+
+The app controls thinking ON/OFF per request via the API — no need to manually toggle anything in LM Studio.
+
+- **Thinking Mode** → app sends `chat_template_kwargs: { enable_thinking: true }` → model reasons first, then answers
+- **Fast Mode** → app sends `chat_template_kwargs: { enable_thinking: false }` → model answers directly, no reasoning
+
+## Setup
 
 1. Open **LM Studio → My Models**
 2. Select your model (e.g., `qwen3.5-9b-claude-4.6-opus-uncensored-distilled`)
 3. Go to **Inference → Prompt Template**
-4. Replace the entire Jinja template with the one below
-5. **Reload the model**
+4. **Turn OFF the thinking button in LM Studio UI** (the API controls it now)
+5. Replace the entire Jinja template with the one below
+6. **Reload the model**
 
-> To toggle thinking: change `enable_thinking` on line 1 to `true` or `false`
+> ⚠️ **Important:** The thinking toggle in LM Studio UI must be **OFF**. If it's ON, it overrides the API and forces thinking on every request.
 
 ---
 
 ## Template
 
 ```jinja
-{%- set enable_thinking = false %}
 {%- if tools %}
     {{- '<|im_start|>system\n' }}
     {%- if messages[0].role == 'system' %}
@@ -110,9 +117,57 @@
 
 ---
 
+## How the App Controls Thinking
+
+The route.ts sends this in the API request body:
+
+```json
+{
+  "model": "qwen3.5-9b-claude-4.6-opus-uncensored-distilled",
+  "messages": [...],
+  "stream": true,
+  "chat_template_kwargs": { "enable_thinking": true }
+}
+```
+
+- `enable_thinking: true` → Thinking Mode (model reasons inside `<think>` tags, then answers)
+- `enable_thinking: false` → Fast Mode (model answers directly, no reasoning)
+
+The `enable_thinking` variable in the template is NOT hardcoded — it comes from `chat_template_kwargs` in each request.
+
+---
+
+## Testing with Postman
+
+**URL:** `POST http://localhost:1234/v1/chat/completions`
+
+**Fast Mode (no thinking):**
+```json
+{
+  "model": "qwen3.5-9b-claude-4.6-opus-uncensored-distilled",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "stream": false,
+  "chat_template_kwargs": {"enable_thinking": false}
+}
+```
+✅ Expected: `reasoning_tokens: 0`, no `<think>` tags
+
+**Thinking Mode:**
+```json
+{
+  "model": "qwen3.5-9b-claude-4.6-opus-uncensored-distilled",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "stream": false,
+  "chat_template_kwargs": {"enable_thinking": true}
+}
+```
+✅ Expected: `reasoning_tokens > 0`, reasoning in `<think>` tags inside `content`
+
+---
+
 ## Recommended Settings
 
-### Instruct Mode (Non-Thinking) — General Tasks
+### Fast Mode — General Tasks
 
 | Parameter          | Value |
 | ------------------ | ----- |
@@ -123,7 +178,7 @@
 | presence_penalty   | 1.5   |
 | repetition_penalty | 1.0   |
 
-### Instruct Mode (Non-Thinking) — Reasoning Tasks
+### Fast Mode — Reasoning Tasks
 
 | Parameter          | Value |
 | ------------------ | ----- |
@@ -145,7 +200,7 @@
 | presence_penalty   | 1.5   |
 | repetition_penalty | 1.0   |
 
-### Thinking Mode — Precise Coding Tasks (WebDev, etc.)
+### Thinking Mode — Precise Coding Tasks
 
 | Parameter          | Value |
 | ------------------ | ----- |
