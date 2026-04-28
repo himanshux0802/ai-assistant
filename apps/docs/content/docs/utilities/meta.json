@@ -1,6 +1,0 @@
-{
-  "title": "Utilities",
-  "icon": "Wrench",
-  "root": true,
-  "pages": ["heat-graph", "tw-shimmer"]
-}

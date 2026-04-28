@@ -5,31 +5,18 @@
     "node": ">=24"
   },
   "scripts": {
-    "cleanup": "bash scripts/cleanup-monorepo.sh",
-    "docs:dev": "pnpm --filter=@assistant-ui/docs dev",
-    "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
-    "ci:publish": "turbo build --filter=\"./packages/*\" && changeset publish",
     "build": "turbo build",
+    "dev": "pnpm --filter=assistant-ui-starter dev",
     "lint": "pnpm exec biome check",
     "lint:fix": "pnpm exec biome check --fix",
-    "test": "turbo test",
-    "prepare": "husky",
-    "deps:check": "npx taze major -f -r",
-    "deps:update": "npx taze major -f -w -r && cd examples/with-expo && npx expo install --fix && cd ../.. && find . -name node_modules -prune -exec rm -rf {} + && rm -f pnpm-lock.yaml && pnpm install && pnpm dedupe && bash scripts/generate-deps-changeset.sh"
+    "test": "turbo test"
   },
   "devDependencies": {
-    "@assistant-ui/x-changelog": "workspace:*",
     "@biomejs/biome": "^2.4.13",
-    "@changesets/cli": "^2.31.0",
-    "husky": "^9.1.7",
-    "lint-staged": "^16.4.0",
     "turbo": "^2.9.6",
     "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@10.33.2",
-  "lint-staged": {
-    "*": "biome check --fix --no-errors-on-unmatched"
-  },
   "browserslist": [
     "chrome 111",
     "edge 111",
