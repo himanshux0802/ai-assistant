@@ -2,10 +2,14 @@
 
 ## How It Works
 
-The app controls thinking ON/OFF per request via the API — no need to manually toggle anything in LM Studio.
+The app controls thinking ON/OFF per request. Two mechanisms work together:
 
-- **Thinking Mode** → app sends `chat_template_kwargs: { enable_thinking: true }` → model reasons first, then answers
-- **Fast Mode** → app sends `chat_template_kwargs: { enable_thinking: false }` → model answers directly, no reasoning
+1. **Jinja template** — checks `enable_thinking` variable to decide whether to start with `<think>` or not
+2. **API request** — sends `chat_template_kwargs: { enable_thinking: true/false }` to set that variable
+3. **`/no_think` in system prompt** — additional signal to the model itself
+
+- **Thinking Mode** → `enable_thinking: true` → template starts with `<think>` → model reasons, then answers
+- **Quick Mode** → `enable_thinking: false` + `/no_think` in system prompt → template skips `<think>` → model answers directly, fast
 
 ## Setup
 
@@ -18,9 +22,13 @@ The app controls thinking ON/OFF per request via the API — no need to manually
 
 > ⚠️ **Important:** The thinking toggle in LM Studio UI must be **OFF**. If it's ON, it overrides the API and forces thinking on every request.
 
+> ⚠️ **Critical:** The default Qwen3 template does NOT have the `enable_thinking` check — it always forces `<think>`. You MUST use the template below.
+
 ---
 
 ## Template
+
+The key difference from the default template is at the very end — the `add_generation_prompt` section conditionally adds `<think>` based on `enable_thinking`:
 
 ```jinja
 {%- if tools %}
@@ -117,57 +125,66 @@ The app controls thinking ON/OFF per request via the API — no need to manually
 
 ---
 
-## How the App Controls Thinking
+## What Makes This Different From Default
 
-The route.ts sends this in the API request body:
+The **default Qwen3 template** has this at the end:
 
-```json
-{
-  "model": "qwen3.5-9b-claude-4.6-opus-uncensored-distilled",
-  "messages": [...],
-  "stream": true,
-  "chat_template_kwargs": { "enable_thinking": true }
-}
+```jinja
+{%- if add_generation_prompt %}
+    {{- '<|im_start|>assistant\n<think>\n' }}
+{%- endif %}
 ```
 
-- `enable_thinking: true` → Thinking Mode (model reasons inside `<think>` tags, then answers)
-- `enable_thinking: false` → Fast Mode (model answers directly, no reasoning)
+This **always** forces thinking — no condition, no check. Every response starts with `<think>`.
 
-The `enable_thinking` variable in the template is NOT hardcoded — it comes from `chat_template_kwargs` in each request.
+**This template** replaces it with:
+
+```jinja
+{%- if add_generation_prompt %}
+    {%- if enable_thinking %}
+        {{- '<|im_start|>assistant\n<think>\n' }}
+    {%- else %}
+        {{- '<|im_start|>assistant\n' }}
+    {%- endif %}
+{%- endif %}
+```
+
+Now thinking only happens when `enable_thinking` is `true`.
 
 ---
 
-## Testing with Postman
+## How the App Controls Thinking
 
-**URL:** `POST http://localhost:1234/v1/chat/completions`
+The route.ts sends `chat_template_kwargs` + `/no_think` in the system prompt:
 
-**Fast Mode (no thinking):**
+**Quick Mode:**
 ```json
 {
-  "model": "qwen3.5-9b-claude-4.6-opus-uncensored-distilled",
-  "messages": [{"role": "user", "content": "Hello"}],
-  "stream": false,
+  "messages": [
+    {"role": "system", "content": "/no_think"},
+    {"role": "user", "content": "Hello"}
+  ],
+  "stream": true,
   "chat_template_kwargs": {"enable_thinking": false}
 }
 ```
-✅ Expected: `reasoning_tokens: 0`, no `<think>` tags
 
 **Thinking Mode:**
 ```json
 {
-  "model": "qwen3.5-9b-claude-4.6-opus-uncensored-distilled",
-  "messages": [{"role": "user", "content": "Hello"}],
-  "stream": false,
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ],
+  "stream": true,
   "chat_template_kwargs": {"enable_thinking": true}
 }
 ```
-✅ Expected: `reasoning_tokens > 0`, reasoning in `<think>` tags inside `content`
 
 ---
 
 ## Recommended Settings
 
-### Fast Mode — General Tasks
+### Quick Mode — General Tasks
 
 | Parameter          | Value |
 | ------------------ | ----- |
@@ -178,7 +195,7 @@ The `enable_thinking` variable in the template is NOT hardcoded — it comes fro
 | presence_penalty   | 1.5   |
 | repetition_penalty | 1.0   |
 
-### Fast Mode — Reasoning Tasks
+### Quick Mode — Reasoning Tasks
 
 | Parameter          | Value |
 | ------------------ | ----- |

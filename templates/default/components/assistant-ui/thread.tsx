@@ -29,16 +29,19 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CodeIcon,
   CopyIcon,
   DownloadIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  XIcon,
   ZapIcon,
 } from "lucide-react";
-import type { FC } from "react";
-import { useThinkingMode } from "@/hooks/use-thinking-mode";
+import { type FC, useState } from "react";
+import { useAIModes } from "@/hooks/use-ai-modes";
+import { SettingsDialog } from "@/components/assistant-ui/settings-dialog";
 
 export const Thread: FC = () => {
   return (
@@ -170,7 +173,9 @@ const Composer: FC = () => {
 };
 
 const ComposerAction: FC = () => {
-  const { enabled: thinking, toggle: toggleThinking } = useThinkingMode();
+  const { thinking, toggleThinking, enabled, activePresetId, presets } = useAIModes();
+  const activePreset = activePresetId ? presets.find((p) => p.id === activePresetId) : null;
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
@@ -185,19 +190,25 @@ const ComposerAction: FC = () => {
               ? "border border-primary/30 bg-primary/10 text-primary"
               : "border border-transparent text-muted-foreground hover:bg-muted",
           )}
-          title={
-            thinking
-              ? "Thinking mode ON — click to turn off"
-              : "Quick mode — click to enable thinking"
-          }
+          title={thinking ? "Thinking mode ON \u2014 click to turn off" : "Quick mode \u2014 click to enable thinking"}
         >
-          {thinking ? (
-            <BrainIcon className="size-3.5" />
-          ) : (
-            <ZapIcon className="size-3.5" />
-          )}
+          {thinking ? <BrainIcon className="size-3.5" /> : <ZapIcon className="size-3.5" />}
           {thinking ? "Think" : "Quick"}
         </button>
+        {enabled && (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all hover:opacity-80"
+            style={activePreset
+              ? { borderColor: `${activePreset.color}40`, color: activePreset.color, backgroundColor: `${activePreset.color}10` }
+              : { borderColor: "#10b98140", color: "#10b981", backgroundColor: "#10b98110" }}
+          >
+            <div className="size-1.5 rounded-full" style={{ backgroundColor: activePreset?.color || "#10b981" }} />
+            {activePreset ? activePreset.name : "Custom"}
+          </button>
+        )}
+        <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
@@ -293,51 +304,117 @@ const GenerationTime: FC = () => {
   );
 };
 
-const AssistantActionBar: FC = () => {
+const RawJsonModal: FC<{ open: boolean; onClose: () => void }> = ({
+  open,
+  onClose,
+}) => {
+  const message = useAuiState((s) => s.message);
+  const [copied, setCopied] = useState(false);
+  if (!open) return null;
+
+  const json = JSON.stringify(message, null, 2);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(json);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
-    <ActionBarPrimitive.Root
-      hideWhenRunning
-      autohide="not-last"
-      className="aui-assistant-action-bar-root col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
     >
-      <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip="Copy">
-          <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon />
-          </AuiIf>
-          <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon />
-          </AuiIf>
-        </TooltipIconButton>
-      </ActionBarPrimitive.Copy>
-      <ActionBarPrimitive.Reload asChild>
-        <TooltipIconButton tooltip="Refresh">
-          <RefreshCwIcon />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Reload>
-      <ActionBarMorePrimitive.Root>
-        <ActionBarMorePrimitive.Trigger asChild>
-          <TooltipIconButton
-            tooltip="More"
-            className="data-[state=open]:bg-accent"
-          >
-            <MoreHorizontalIcon />
+      <div
+        className="relative max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-lg border bg-background shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <span className="font-medium text-sm">Raw Message JSON</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleCopy}
+              className="rounded p-1.5 text-muted-foreground hover:bg-muted"
+              title="Copy"
+            >
+              {copied ? (
+                <CheckIcon className="size-4" />
+              ) : (
+                <CopyIcon className="size-4" />
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded p-1.5 text-muted-foreground hover:bg-muted"
+            >
+              <XIcon className="size-4" />
+            </button>
+          </div>
+        </div>
+        <pre className="max-h-[70vh] overflow-auto p-4 text-xs leading-relaxed">
+          <code>{json}</code>
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+const AssistantActionBar: FC = () => {
+  const [showJson, setShowJson] = useState(false);
+
+  return (
+    <>
+      <RawJsonModal open={showJson} onClose={() => setShowJson(false)} />
+      <ActionBarPrimitive.Root
+        hideWhenRunning
+        autohide="not-last"
+        className="aui-assistant-action-bar-root col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground"
+      >
+        <ActionBarPrimitive.Copy asChild>
+          <TooltipIconButton tooltip="Copy">
+            <AuiIf condition={(s) => s.message.isCopied}>
+              <CheckIcon />
+            </AuiIf>
+            <AuiIf condition={(s) => !s.message.isCopied}>
+              <CopyIcon />
+            </AuiIf>
           </TooltipIconButton>
-        </ActionBarMorePrimitive.Trigger>
-        <ActionBarMorePrimitive.Content
-          side="bottom"
-          align="start"
-          className="aui-action-bar-more-content z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-        >
-          <ActionBarPrimitive.ExportMarkdown asChild>
-            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">
-              <DownloadIcon className="size-4" />
-              Export as Markdown
+        </ActionBarPrimitive.Copy>
+        <ActionBarPrimitive.Reload asChild>
+          <TooltipIconButton tooltip="Refresh">
+            <RefreshCwIcon />
+          </TooltipIconButton>
+        </ActionBarPrimitive.Reload>
+        <ActionBarMorePrimitive.Root>
+          <ActionBarMorePrimitive.Trigger asChild>
+            <TooltipIconButton
+              tooltip="More"
+              className="data-[state=open]:bg-accent"
+            >
+              <MoreHorizontalIcon />
+            </TooltipIconButton>
+          </ActionBarMorePrimitive.Trigger>
+          <ActionBarMorePrimitive.Content
+            side="bottom"
+            align="start"
+            className="aui-action-bar-more-content z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          >
+            <ActionBarPrimitive.ExportMarkdown asChild>
+              <ActionBarMorePrimitive.Item className="aui-action-bar-more-item flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">
+                <DownloadIcon className="size-4" />
+                Export as Markdown
+              </ActionBarMorePrimitive.Item>
+            </ActionBarPrimitive.ExportMarkdown>
+            <ActionBarMorePrimitive.Item
+              className="aui-action-bar-more-item flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+              onClick={() => setShowJson(true)}
+            >
+              <CodeIcon className="size-4" />
+              View Raw JSON
             </ActionBarMorePrimitive.Item>
-          </ActionBarPrimitive.ExportMarkdown>
-        </ActionBarMorePrimitive.Content>
-      </ActionBarMorePrimitive.Root>
-    </ActionBarPrimitive.Root>
+          </ActionBarMorePrimitive.Content>
+        </ActionBarMorePrimitive.Root>
+      </ActionBarPrimitive.Root>
+    </>
   );
 };
 

@@ -6,6 +6,7 @@ import {
   SimpleTextAttachmentAdapter,
   CompositeAttachmentAdapter,
   RuntimeAdapterProvider,
+  useRemoteThreadListRuntime,
 } from "@assistant-ui/react";
 import {
   useChatRuntime,
@@ -20,44 +21,44 @@ import {
 } from "@/components/ui/sidebar";
 import { ThreadListSidebar } from "@/components/assistant-ui/threadlist-sidebar";
 import { Separator } from "@/components/ui/separator";
-import {
-  ThinkingModeProvider,
-  useThinkingMode,
-} from "@/hooks/use-thinking-mode";
-import { SettingsProvider, useSettings } from "@/hooks/use-settings";
-import { useMemo, useRef } from "react";
+import { AIModeProvider, useAIModes } from "@/hooks/use-ai-modes";
+import { useMemo } from "react";
+import { createLocalThreadListAdapter } from "@/lib/local-thread-adapter";
 
 const attachmentAdapter = new CompositeAttachmentAdapter([
   new SimpleImageAttachmentAdapter(),
   new SimpleTextAttachmentAdapter(),
 ]);
 
-const AssistantInner = () => {
-  const thinkingMode = useThinkingMode();
-  const { systemPromptEnabled, systemPrompt } = useSettings();
-  const threadIdRef = useRef(
-    `thread_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-  );
+function useChatThreadRuntime() {
+  const { thinking, effectivePrompt } = useAIModes();
 
   const transport = useMemo(
     () =>
       new AssistantChatTransport({
         api: "/api/chat",
         headers: {
-          "x-enable-thinking": thinkingMode.enabled ? "1" : "0",
-          "x-system-prompt":
-            systemPromptEnabled && systemPrompt
-              ? encodeURIComponent(systemPrompt)
-              : "",
-          "x-thread-id": threadIdRef.current,
+          "x-enable-thinking": thinking ? "1" : "0",
+          "x-system-prompt": effectivePrompt
+            ? encodeURIComponent(effectivePrompt)
+            : "",
         },
       }),
-    [thinkingMode.enabled, systemPromptEnabled, systemPrompt],
+    [thinking, effectivePrompt],
   );
 
-  const runtime = useChatRuntime({
+  return useChatRuntime({
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     transport,
+  });
+}
+
+const AssistantInner = () => {
+  const adapter = useMemo(() => createLocalThreadListAdapter(), []);
+
+  const runtime = useRemoteThreadListRuntime({
+    runtimeHook: useChatThreadRuntime,
+    adapter,
   });
 
   return (
@@ -87,10 +88,8 @@ const AssistantInner = () => {
 
 export const Assistant = () => {
   return (
-    <SettingsProvider>
-      <ThinkingModeProvider>
-        <AssistantInner />
-      </ThinkingModeProvider>
-    </SettingsProvider>
+    <AIModeProvider>
+      <AssistantInner />
+    </AIModeProvider>
   );
 };

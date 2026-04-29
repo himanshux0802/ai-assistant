@@ -44,9 +44,7 @@ export async function POST(req: Request) {
   const effectiveSystem = systemPromptFromHeader || system;
 
   const allMessages = [
-    ...(effectiveSystem
-      ? [{ role: "system" as const, content: effectiveSystem }]
-      : []),
+    ...(effectiveSystem ? [{ role: "system" as const, content: effectiveSystem }] : []),
     ...modelMessages.map((m) => {
       if (typeof m.content === "string") {
         return { role: m.role, content: m.content };
@@ -118,94 +116,99 @@ export async function POST(req: Request) {
           },
         );
 
-        // Quick mode: stream false, no reasoning
         if (!enableThinking) {
+          // Quick mode: stream:false so chat_template_kwargs works
           const json = await response.json();
-          let content = json.choices?.[0]?.message?.content || "";
-          content = content.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim();
+          const raw = json.choices?.[0]?.message?.content || "";
+
+          // Parse <think> blocks and send as reasoning bubbles
+          const thinkMatch = raw.match(/<think>([\s\S]*?)<\/think>/);
+          if (thinkMatch && thinkMatch[1].trim()) {
+            const rid = nextId();
+            writer.write({ type: "reasoning-start", id: rid });
+            writer.write({ type: "reasoning-delta", id: rid, delta: thinkMatch[1].trim() });
+            writer.write({ type: "reasoning-end", id: rid });
+          }
+
+          // Send the actual answer (everything after </think>)
+          let content = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
           if (content) {
             const textId = nextId();
             writer.write({ type: "text-start", id: textId });
-            writer.write({ type: "text-delta", id: textId, delta: content });
+            const words = content.split(/(\s+)/);
+            for (const word of words) {
+              writer.write({ type: "text-delta", id: textId, delta: word });
+            }
             writer.write({ type: "text-end", id: textId });
           }
         } else {
-          // Thinking mode: stream true, show reasoning live
+          // Thinking mode: real streaming with reasoning bubbles
           if (!response.body) return;
 
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          let reasoningId: string | null = null;
-          let textId: string | null = null;
-          let insideThink = false;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let reasoningId: string | null = null;
+        let textId: string | null = null;
+        let insideThink = false;
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith("data: ")) continue;
-              const data = trimmed.slice(6);
-              if (data === "[DONE]") continue;
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data: ")) continue;
+            const data = trimmed.slice(6);
+            if (data === "[DONE]") continue;
 
-              let parsed: any;
-              try {
-                parsed = JSON.parse(data);
-              } catch {
-                continue;
-              }
-
-              const delta = parsed.choices?.[0]?.delta;
-              if (!delta) continue;
-
-              const chunk: string = delta.content || "";
-              if (!chunk) continue;
-
-              if (chunk.includes("<think>")) {
-                insideThink = true;
-                if (!reasoningId) {
-                  reasoningId = nextId();
-                  writer.write({ type: "reasoning-start", id: reasoningId });
-                }
-                continue;
-              }
-
-              if (chunk.includes("</think>")) {
-                insideThink = false;
-                if (reasoningId) {
-                  writer.write({ type: "reasoning-end", id: reasoningId });
-                  reasoningId = null;
-                }
-                continue;
-              }
-
-              if (insideThink) {
-                if (reasoningId) {
-                  writer.write({ type: "reasoning-delta", id: reasoningId, delta: chunk });
-                }
-                continue;
-              }
-
-              if (!textId) {
-                textId = nextId();
-                writer.write({ type: "text-start", id: textId });
-              }
-              writer.write({ type: "text-delta", id: textId, delta: chunk });
+            let parsed: any;
+            try {
+              parsed = JSON.parse(data);
+            } catch {
+              continue;
             }
-          }
 
-          if (reasoningId) {
-            writer.write({ type: "reasoning-end", id: reasoningId });
+            const delta = parsed.choices?.[0]?.delta;
+            if (!delta) continue;
+
+            const chunk: string = delta.content || "";
+            if (!chunk) continue;
+
+            if (chunk.includes("<think>")) {
+              insideThink = true;
+              if (!reasoningId) {
+                reasoningId = nextId();
+                writer.write({ type: "reasoning-start", id: reasoningId });
+              }
+              continue;
+            }
+
+            if (chunk.includes("</think>")) {
+              insideThink = false;
+              if (reasoningId) {
+                writer.write({ type: "reasoning-end", id: reasoningId });
+                reasoningId = null;
+              }
+              continue;
+            }
+
+            if (insideThink && reasoningId) {
+              writer.write({ type: "reasoning-delta", id: reasoningId, delta: chunk });
+              continue;
+            }
+            if (!textId) {
+              textId = nextId();
+              writer.write({ type: "text-start", id: textId });
+            }
+            writer.write({ type: "text-delta", id: textId, delta: chunk });
           }
-          if (textId) {
-            writer.write({ type: "text-end", id: textId });
-          }
+        }
+
         }
 
         // Auto-save chat history
