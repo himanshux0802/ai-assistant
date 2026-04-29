@@ -24,14 +24,31 @@ const BUILTIN_PRESETS: Preset[] = [
   { id: "comprehensive", name: "Comprehensive", prompt: "Provide thorough, detailed responses. Cover all angles and edge cases.", color: "#10b981", builtin: true },
 ];
 
+export type ImageMode = "off" | "ai" | "image";
+
 const STORAGE_PRESETS = "skyler-custom-presets";
 const STORAGE_ACTIVE = "skyler-active-preset";
 const STORAGE_CUSTOM_PROMPT = "skyler-custom-prompt";
 const STORAGE_ENABLED = "skyler-prompt-enabled";
 const STORAGE_THINKING = "skyler-thinking";
+const STORAGE_IMAGE_MODE = "skyler-image-mode";
+const STORAGE_IMAGE_SETTINGS = "skyler-image-settings";
+
+export type ImageSettings = {
+  artStyle: string;
+  shape: string;
+  guidanceScale: string;
+  negativePrompt: string;
+};
+
+const DEFAULT_IMAGE_SETTINGS: ImageSettings = {
+  artStyle: "Painted Anime Plus",
+  shape: "Portrait(512x768px)",
+  guidanceScale: "default(7)",
+  negativePrompt: "",
+};
 
 type ContextType = {
-  // System prompt
   enabled: boolean;
   setEnabled: (v: boolean) => void;
   activePresetId: string | null;
@@ -39,13 +56,15 @@ type ContextType = {
   customPrompt: string;
   setCustomPrompt: (v: string) => void;
   effectivePrompt: string;
-  // Presets
   presets: Preset[];
   addPreset: (p: Omit<Preset, "id">) => void;
   deletePreset: (id: string) => void;
-  // Thinking
   thinking: boolean;
   toggleThinking: () => void;
+  imageMode: ImageMode;
+  setImageMode: (m: ImageMode) => void;
+  imageSettings: ImageSettings;
+  setImageSettings: (s: ImageSettings) => void;
 };
 
 const Ctx = createContext<ContextType>({
@@ -61,6 +80,10 @@ const Ctx = createContext<ContextType>({
   deletePreset: () => {},
   thinking: false,
   toggleThinking: () => {},
+  imageMode: "off",
+  setImageMode: () => {},
+  imageSettings: DEFAULT_IMAGE_SETTINGS,
+  setImageSettings: () => {},
 });
 
 export const useAIModes = () => useContext(Ctx);
@@ -71,46 +94,32 @@ export const AIModeProvider = ({ children }: { children: ReactNode }) => {
   const [customPrompt, setCustomPrompt] = useState("");
   const [customPresets, setCustomPresets] = useState<Preset[]>([]);
   const [thinking, setThinking] = useState(false);
+  const [imageMode, setImageModeState] = useState<ImageMode>("off");
+  const [imageSettings, setImageSettingsState] = useState<ImageSettings>(DEFAULT_IMAGE_SETTINGS);
   const [loaded, setLoaded] = useState(false);
 
-  // Load from localStorage
   useEffect(() => {
     try {
       setEnabled(localStorage.getItem(STORAGE_ENABLED) === "1");
       setActivePresetId(localStorage.getItem(STORAGE_ACTIVE) || null);
       setCustomPrompt(localStorage.getItem(STORAGE_CUSTOM_PROMPT) || "");
       setThinking(localStorage.getItem(STORAGE_THINKING) === "1");
-      const stored = localStorage.getItem(STORAGE_PRESETS);
-      if (stored) setCustomPresets(JSON.parse(stored));
+      setImageModeState((localStorage.getItem(STORAGE_IMAGE_MODE) as ImageMode) || "off");
+      const storedPresets = localStorage.getItem(STORAGE_PRESETS);
+      if (storedPresets) setCustomPresets(JSON.parse(storedPresets));
+      const storedImgSettings = localStorage.getItem(STORAGE_IMAGE_SETTINGS);
+      if (storedImgSettings) setImageSettingsState(JSON.parse(storedImgSettings));
     } catch {}
     setLoaded(true);
   }, []);
 
-  // Persist
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(STORAGE_ENABLED, enabled ? "1" : "0");
-  }, [enabled, loaded]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(STORAGE_ACTIVE, activePresetId || "");
-  }, [activePresetId, loaded]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(STORAGE_CUSTOM_PROMPT, customPrompt);
-  }, [customPrompt, loaded]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(STORAGE_THINKING, thinking ? "1" : "0");
-  }, [thinking, loaded]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(STORAGE_PRESETS, JSON.stringify(customPresets));
-  }, [customPresets, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_ENABLED, enabled ? "1" : "0"); }, [enabled, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_ACTIVE, activePresetId || ""); }, [activePresetId, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_CUSTOM_PROMPT, customPrompt); }, [customPrompt, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_THINKING, thinking ? "1" : "0"); }, [thinking, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_PRESETS, JSON.stringify(customPresets)); }, [customPresets, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_IMAGE_MODE, imageMode); }, [imageMode, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_IMAGE_SETTINGS, JSON.stringify(imageSettings)); }, [imageSettings, loaded]);
 
   const presets = [...BUILTIN_PRESETS, ...customPresets];
 
@@ -124,39 +133,24 @@ export const AIModeProvider = ({ children }: { children: ReactNode }) => {
       : customPrompt
     : "";
 
-  const setActivePreset = useCallback((id: string | null) => {
-    setActivePresetId(id);
-  }, []);
-
-  const addPreset = useCallback((p: Omit<Preset, "id">) => {
-    setCustomPresets((prev) => [...prev, { ...p, id: `custom-${Date.now()}` }]);
-  }, []);
-
-  const deletePreset = useCallback(
-    (id: string) => {
-      setCustomPresets((prev) => prev.filter((p) => p.id !== id));
-      if (activePresetId === id) setActivePresetId(null);
-    },
-    [activePresetId],
-  );
-
+  const setActivePreset = useCallback((id: string | null) => setActivePresetId(id), []);
+  const addPreset = useCallback((p: Omit<Preset, "id">) => setCustomPresets((prev) => [...prev, { ...p, id: `custom-${Date.now()}` }]), []);
+  const deletePreset = useCallback((id: string) => { setCustomPresets((prev) => prev.filter((p) => p.id !== id)); if (activePresetId === id) setActivePresetId(null); }, [activePresetId]);
   const toggleThinking = useCallback(() => setThinking((v) => !v), []);
+  const setImageMode = useCallback((m: ImageMode) => setImageModeState(m), []);
+  const setImageSettings = useCallback((s: ImageSettings) => setImageSettingsState(s), []);
 
   return (
     <Ctx.Provider
       value={{
-        enabled,
-        setEnabled,
-        activePresetId,
-        setActivePreset,
-        customPrompt,
-        setCustomPrompt,
+        enabled, setEnabled,
+        activePresetId, setActivePreset,
+        customPrompt, setCustomPrompt,
         effectivePrompt,
-        presets,
-        addPreset,
-        deletePreset,
-        thinking,
-        toggleThinking,
+        presets, addPreset, deletePreset,
+        thinking, toggleThinking,
+        imageMode, setImageMode,
+        imageSettings, setImageSettings,
       }}
     >
       {children}

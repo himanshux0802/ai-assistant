@@ -32,7 +32,15 @@ const attachmentAdapter = new CompositeAttachmentAdapter([
 ]);
 
 function useChatThreadRuntime() {
-  const { thinking, effectivePrompt } = useAIModes();
+  const { thinking, effectivePrompt, imageMode } = useAIModes();
+
+  let systemPrompt = effectivePrompt;
+  if (imageMode === "ai") {
+    systemPrompt = (effectivePrompt ? effectivePrompt + "\n\n" : "") +
+      "You can generate images. When you want to show the user an image, write ONLY this tag on its own line: [GENERATE_IMAGE: your detailed image description]. Do NOT write markdown, do NOT explain the image, do NOT add technical specs. Just the tag. The system will generate and display the image automatically.";
+  } else if (imageMode === "image") {
+    systemPrompt = "You are an image prompt enhancer. The user will describe an image they want. Your ONLY job is to enhance their description into a detailed image generation prompt and output it as: [GENERATE_IMAGE: your enhanced description]. Output NOTHING else — no explanation, no markdown, no headers, no technical specs. Just the single [GENERATE_IMAGE: ...] tag.";
+  }
 
   const transport = useMemo(
     () =>
@@ -40,12 +48,12 @@ function useChatThreadRuntime() {
         api: "/api/chat",
         headers: {
           "x-enable-thinking": thinking ? "1" : "0",
-          "x-system-prompt": effectivePrompt
-            ? encodeURIComponent(effectivePrompt)
+          "x-system-prompt": systemPrompt
+            ? encodeURIComponent(systemPrompt)
             : "",
         },
       }),
-    [thinking, effectivePrompt],
+    [thinking, systemPrompt],
   );
 
   return useChatRuntime({

@@ -33,7 +33,9 @@ import {
   CopyIcon,
   DownloadIcon,
   FileTextIcon,
+  ImageIcon,
   InfoIcon,
+  Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -195,6 +197,47 @@ const Composer: FC = () => {
   );
 };
 
+const ImageModeDropdown: FC = () => {
+  const { imageMode, setImageMode } = useAIModes();
+  const [open, setOpen] = useState(false);
+  const modes = [
+    { id: "off" as const, label: "Off", icon: "\ud83d\udeab", desc: "No images" },
+    { id: "ai" as const, label: "AI Mode", icon: "\ud83e\udd16", desc: "AI sends images when it wants" },
+    { id: "image" as const, label: "Image Mode", icon: "\ud83c\udfa8", desc: "Everything becomes an image" },
+  ];
+  const current = modes.find((m) => m.id === imageMode) || modes[0];
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(!open)}
+        className={cn("flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium transition-all",
+          imageMode === "off" ? "text-muted-foreground hover:bg-muted"
+            : imageMode === "ai" ? "border border-blue-400/30 bg-blue-400/10 text-blue-400"
+              : "border border-pink-400/30 bg-pink-400/10 text-pink-400")}>
+        <ImageIcon className="size-3.5" />
+        {imageMode !== "off" && current.label}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full left-0 z-50 mb-1 min-w-48 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
+            {modes.map((m) => (
+              <button key={m.id} type="button" onClick={() => { setImageMode(m.id); setOpen(false); }}
+                className={cn("flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent", imageMode === m.id && "bg-accent")}>
+                <span className="text-base">{m.icon}</span>
+                <div className="flex-1">
+                  <div className="font-medium text-xs">{m.label}</div>
+                  <div className="text-[10px] text-muted-foreground">{m.desc}</div>
+                </div>
+                {imageMode === m.id && <CheckIcon className="size-3 text-primary" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const ComposerAction: FC = () => {
   const { thinking, toggleThinking, enabled, activePresetId, presets } = useAIModes();
   const activePreset = activePresetId ? presets.find((p) => p.id === activePresetId) : null;
@@ -204,6 +247,7 @@ const ComposerAction: FC = () => {
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
+        <ImageModeDropdown />
         <button
           type="button"
           onClick={toggleThinking}
@@ -218,7 +262,6 @@ const ComposerAction: FC = () => {
           {thinking ? <BrainIcon className="size-3.5" /> : <ZapIcon className="size-3.5" />}
           {thinking ? "Think" : "Quick"}
         </button>
-        {/* System prompt indicator — always visible, clickable to open settings */}
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}

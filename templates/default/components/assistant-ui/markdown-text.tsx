@@ -9,11 +9,85 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useState } from "react";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { type FC, memo, useState, useEffect, useRef } from "react";
+import { CheckIcon, CopyIcon, Loader2Icon } from "lucide-react";
+import { useAuiState } from "@assistant-ui/react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
+
+// Inline image generator — detects [GENERATE_IMAGE: ...] and renders the image
+const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
+  const [images, setImages] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const called = useRef(false);
+
+  useEffect(() => {
+    if (called.current) return;
+    called.current = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        });
+        const data = await res.json();
+        if (data.success && data.images?.length) {
+          setImages(data.images.map((img: any) => `data:image/png;base64,${img.base64}`));
+        } else {
+          setError(data.error || "Failed to generate");
+        }
+      } catch {
+        setError("Image server not running");
+      }
+      setLoading(false);
+    })();
+  }, [prompt]);
+
+  if (loading) {
+    return (
+      <div className="my-3 flex items-center gap-2 rounded-lg border border-dashed p-4 text-muted-foreground text-sm">
+        <Loader2Icon className="size-4 animate-spin" />
+        Generating image: {prompt.slice(0, 60)}...
+      </div>
+    );
+  }
+  if (error) {
+    return <div className="my-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs">{error}</div>;
+  }
+  if (images.length > 0) {
+    return (
+      <div className={`my-3 grid gap-2 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+        {images.map((src, i) => (
+          <img key={i} src={src} alt={`${prompt} ${i + 1}`} className="w-full rounded-lg border" />
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
+
+// Parse text for [GENERATE_IMAGE: ...] tags
+const TextWithImages: FC<{ text: string }> = ({ text }) => {
+  const parts = text.split(/(\[GENERATE_IMAGE:\s*([^\]]+)\])/);
+  if (parts.length === 1) return <>{text}</>;
+
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    if (parts[i]?.startsWith("[GENERATE_IMAGE:")) {
+      const prompt = parts[i + 1]?.trim();
+      if (prompt) elements.push(<InlineImage key={i} prompt={prompt} />);
+      i += 2;
+    } else {
+      if (parts[i]) elements.push(<span key={i}>{parts[i]}</span>);
+      i += 1;
+    }
+  }
+  return <>{elements}</>;
+};
 
 const MarkdownTextImpl = () => {
   return (
@@ -25,7 +99,37 @@ const MarkdownTextImpl = () => {
   );
 };
 
-export const MarkdownText = memo(MarkdownTextImpl);
+const MarkdownTextBase = memo(MarkdownTextImpl);
+
+// Wrapper that detects [GENERATE_IMAGE: ...] in the raw text
+export const MarkdownText: FC = () => {
+  const text = useAuiState((s) => {
+    const parts = s.message?.parts;
+    if (!parts) return "";
+    return parts
+      .filter((p: any) => p.type === "text")
+      .map((p: any) => p.text)
+      .join("");
+  });
+
+  const imageMatch = text.match(/\[GENERATE_IMAGE:\s*([^\]]+)\]/);
+
+  if (imageMatch) {
+    const prompt = imageMatch[1].trim();
+    const before = text.slice(0, imageMatch.index).trim();
+    const after = text.slice((imageMatch.index || 0) + imageMatch[0].length).trim();
+
+    return (
+      <>
+        {before && <div className="aui-md">{before}</div>}
+        <InlineImage prompt={prompt} />
+        {after && <div className="aui-md">{after}</div>}
+      </>
+    );
+  }
+
+  return <MarkdownTextBase />;
+};
 
 const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard();

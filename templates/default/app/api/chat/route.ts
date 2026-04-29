@@ -207,38 +207,6 @@ export async function POST(req: Request) {
               )?.slice(0, 80) || "New Chat"
             : "New Chat";
 
-          // Auto-generate title using AI on first message
-          let title = firstText;
-          if (!existing.title && firstText !== "New Chat") {
-            try {
-              const titleRes = await fetch(
-                `${process.env.OPENAI_BASE_URL}/chat/completions`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-                  },
-                  body: JSON.stringify({
-                    model: process.env.LM_STUDIO_MODEL,
-                    messages: [
-                      { role: "system", content: "Generate a short title (max 6 words) for this conversation. Reply with ONLY the title, nothing else." },
-                      { role: "user", content: firstText },
-                    ],
-                    stream: false,
-                    chat_template_kwargs: { enable_thinking: false },
-                  }),
-                },
-              );
-              const titleJson = await titleRes.json();
-              const generated = (titleJson.choices?.[0]?.message?.content || "")
-                .replace(/<think>[\s\S]*?<\/think>/gi, "")
-                .replace(/^["']|["']$/g, "")
-                .trim();
-              if (generated && generated.length < 80) title = generated;
-            } catch {}
-          }
-
           const filePath = path.join(HISTORY_DIR, `${threadId}.json`);
           const now = new Date().toISOString();
           let existing: any = {};
@@ -247,6 +215,8 @@ export async function POST(req: Request) {
           } catch {
             // new thread
           }
+
+          const title = firstText;
           const saved = {
             id: threadId,
             title: existing.title || title,

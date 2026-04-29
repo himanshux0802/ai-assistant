@@ -80,3 +80,7 @@ htmlcov/
 .specify/
 specs/*
 .test-output/
+
+# backend
+ 
+backend/browser_data/
