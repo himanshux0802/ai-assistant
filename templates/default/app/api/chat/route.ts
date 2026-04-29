@@ -110,40 +110,13 @@ export async function POST(req: Request) {
             body: JSON.stringify({
               model: process.env.LM_STUDIO_MODEL,
               messages: allMessages,
-              stream: enableThinking,
+              stream: true,
               chat_template_kwargs: { enable_thinking: enableThinking },
             }),
           },
         );
 
-        if (!enableThinking) {
-          // Quick mode: stream:false so chat_template_kwargs works
-          const json = await response.json();
-          const raw = json.choices?.[0]?.message?.content || "";
-
-          // Parse <think> blocks and send as reasoning bubbles
-          const thinkMatch = raw.match(/<think>([\s\S]*?)<\/think>/);
-          if (thinkMatch && thinkMatch[1].trim()) {
-            const rid = nextId();
-            writer.write({ type: "reasoning-start", id: rid });
-            writer.write({ type: "reasoning-delta", id: rid, delta: thinkMatch[1].trim() });
-            writer.write({ type: "reasoning-end", id: rid });
-          }
-
-          // Send the actual answer (everything after </think>)
-          let content = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-          if (content) {
-            const textId = nextId();
-            writer.write({ type: "text-start", id: textId });
-            const words = content.split(/(\s+)/);
-            for (const word of words) {
-              writer.write({ type: "text-delta", id: textId, delta: word });
-            }
-            writer.write({ type: "text-end", id: textId });
-          }
-        } else {
-          // Thinking mode: real streaming with reasoning bubbles
-          if (!response.body) return;
+        if (!response.body) return;
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -201,6 +174,7 @@ export async function POST(req: Request) {
               writer.write({ type: "reasoning-delta", id: reasoningId, delta: chunk });
               continue;
             }
+
             if (!textId) {
               textId = nextId();
               writer.write({ type: "text-start", id: textId });
@@ -209,6 +183,11 @@ export async function POST(req: Request) {
           }
         }
 
+        if (reasoningId) {
+          writer.write({ type: "reasoning-end", id: reasoningId });
+        }
+        if (textId) {
+          writer.write({ type: "text-end", id: textId });
         }
 
         // Auto-save chat history
@@ -217,7 +196,7 @@ export async function POST(req: Request) {
           const threadId =
             req.headers.get("x-thread-id") || `thread_${Date.now()}`;
           const firstUserMsg = messages.find((m) => m.role === "user");
-          const title = firstUserMsg
+          const firstText = firstUserMsg
             ? (Array.isArray(firstUserMsg.parts)
                 ? (
                     firstUserMsg.parts.find(
@@ -227,6 +206,38 @@ export async function POST(req: Request) {
                 : "New Chat"
               )?.slice(0, 80) || "New Chat"
             : "New Chat";
+
+          // Auto-generate title using AI on first message
+          let title = firstText;
+          if (!existing.title && firstText !== "New Chat") {
+            try {
+              const titleRes = await fetch(
+                `${process.env.OPENAI_BASE_URL}/chat/completions`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                  },
+                  body: JSON.stringify({
+                    model: process.env.LM_STUDIO_MODEL,
+                    messages: [
+                      { role: "system", content: "Generate a short title (max 6 words) for this conversation. Reply with ONLY the title, nothing else." },
+                      { role: "user", content: firstText },
+                    ],
+                    stream: false,
+                    chat_template_kwargs: { enable_thinking: false },
+                  }),
+                },
+              );
+              const titleJson = await titleRes.json();
+              const generated = (titleJson.choices?.[0]?.message?.content || "")
+                .replace(/<think>[\s\S]*?<\/think>/gi, "")
+                .replace(/^["']|["']$/g, "")
+                .trim();
+              if (generated && generated.length < 80) title = generated;
+            } catch {}
+          }
 
           const filePath = path.join(HISTORY_DIR, `${threadId}.json`);
           const now = new Date().toISOString();

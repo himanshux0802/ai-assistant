@@ -32,6 +32,8 @@ import {
   CodeIcon,
   CopyIcon,
   DownloadIcon,
+  FileTextIcon,
+  InfoIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -150,12 +152,33 @@ const ThreadSuggestionItem: FC = () => {
 };
 
 const Composer: FC = () => {
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          // Trigger the attachment adapter by dispatching a custom event
+          const input = document.querySelector<HTMLInputElement>(".aui-composer-input");
+          if (input) {
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            const dropEvent = new DragEvent("drop", { dataTransfer: dt, bubbles: true });
+            input.closest("[data-slot='aui_composer-shell']")?.dispatchEvent(dropEvent);
+          }
+        }
+      }
+    }
+  };
+
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"
           className="flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-background p-(--composer-padding) transition-shadow focus-within:border-ring/75 focus-within:ring-2 focus-within:ring-ring/20 data-[dragging=true]:border-ring data-[dragging=true]:border-dashed data-[dragging=true]:bg-accent/50"
+          onPaste={handlePaste}
         >
           <ComposerAttachments />
           <ComposerPrimitive.Input
@@ -195,19 +218,22 @@ const ComposerAction: FC = () => {
           {thinking ? <BrainIcon className="size-3.5" /> : <ZapIcon className="size-3.5" />}
           {thinking ? "Think" : "Quick"}
         </button>
-        {enabled && (
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            className="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all hover:opacity-80"
-            style={activePreset
-              ? { borderColor: `${activePreset.color}40`, color: activePreset.color, backgroundColor: `${activePreset.color}10` }
-              : { borderColor: "#10b98140", color: "#10b981", backgroundColor: "#10b98110" }}
-          >
+        {/* System prompt indicator — always visible, clickable to open settings */}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all hover:opacity-80"
+          style={enabled && activePreset
+            ? { borderColor: `${activePreset.color}40`, color: activePreset.color, backgroundColor: `${activePreset.color}10` }
+            : enabled
+              ? { borderColor: "#10b98140", color: "#10b981", backgroundColor: "#10b98110" }
+              : {}}
+        >
+          {enabled && (
             <div className="size-1.5 rounded-full" style={{ backgroundColor: activePreset?.color || "#10b981" }} />
-            {activePreset ? activePreset.name : "Custom"}
-          </button>
-        )}
+          )}
+          {enabled ? (activePreset ? activePreset.name : "Custom") : "Default"}
+        </button>
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>
@@ -255,6 +281,7 @@ const MessageError: FC = () => {
 const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
+  const [showRaw, setShowRaw] = useState(false);
 
   return (
     <MessagePrimitive.Root
@@ -266,14 +293,18 @@ const AssistantMessage: FC = () => {
         data-slot="aui_assistant-message-content"
         className="wrap-break-word px-2 text-foreground leading-relaxed"
       >
-        <MessagePrimitive.Parts
-          components={{
-            Text: MarkdownText,
-            Reasoning: Reasoning,
-            ReasoningGroup: ReasoningGroup,
-            tools: { Fallback: ToolFallback },
-          }}
-        />
+        {showRaw ? (
+          <RawMarkdownView />
+        ) : (
+          <MessagePrimitive.Parts
+            components={{
+              Text: MarkdownText,
+              Reasoning: Reasoning,
+              ReasoningGroup: ReasoningGroup,
+              tools: { Fallback: ToolFallback },
+            }}
+          />
+        )}
         <MessageError />
       </div>
 
@@ -283,9 +314,23 @@ const AssistantMessage: FC = () => {
       >
         <BranchPicker />
         <GenerationTime />
-        <AssistantActionBar />
+        <AssistantActionBar showRaw={showRaw} onToggleRaw={() => setShowRaw((v) => !v)} />
       </div>
     </MessagePrimitive.Root>
+  );
+};
+
+const RawMarkdownView: FC = () => {
+  const message = useAuiState((s) => s.message);
+  const raw = message.parts
+    ?.filter((p: any) => p.type === "text")
+    .map((p: any) => p.text)
+    .join("") || "";
+
+  return (
+    <pre className="whitespace-pre-wrap rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed">
+      {raw}
+    </pre>
   );
 };
 
@@ -296,10 +341,11 @@ const GenerationTime: FC = () => {
 
   const seconds = (timing.totalStreamTime / 1000).toFixed(1);
   const tps = timing.tokensPerSecond?.toFixed(1);
+  const tokens = timing.tokenCount;
 
   return (
     <span className="text-muted-foreground text-xs">
-      {seconds}s{tps ? ` · ${tps} tok/s` : ""}
+      {seconds}s{tps ? ` · ${tps} tok/s` : ""}{tokens ? ` · ${tokens} tokens` : ""}
     </span>
   );
 };
@@ -358,7 +404,7 @@ const RawJsonModal: FC<{ open: boolean; onClose: () => void }> = ({
   );
 };
 
-const AssistantActionBar: FC = () => {
+const AssistantActionBar: FC<{ showRaw: boolean; onToggleRaw: () => void }> = ({ showRaw, onToggleRaw }) => {
   const [showJson, setShowJson] = useState(false);
 
   return (
@@ -384,6 +430,13 @@ const AssistantActionBar: FC = () => {
             <RefreshCwIcon />
           </TooltipIconButton>
         </ActionBarPrimitive.Reload>
+        <TooltipIconButton
+          tooltip={showRaw ? "Show rendered" : "Show raw markdown"}
+          onClick={onToggleRaw}
+          className={showRaw ? "text-primary" : ""}
+        >
+          <FileTextIcon />
+        </TooltipIconButton>
         <ActionBarMorePrimitive.Root>
           <ActionBarMorePrimitive.Trigger asChild>
             <TooltipIconButton
