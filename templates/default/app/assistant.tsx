@@ -31,15 +31,26 @@ const attachmentAdapter = new CompositeAttachmentAdapter([
   new SimpleTextAttachmentAdapter(),
 ]);
 
+const IMAGE_TAG_INSTRUCTION =
+  "You can generate images. When you want to show the user an image, write ONLY this tag on its own line: [GENERATE_IMAGE: your detailed image description]. Do NOT write markdown, do NOT explain the image, do NOT add technical specs. Just the tag. The system will generate and display the image automatically.";
+
+const IMAGE_ONLY_INSTRUCTION =
+  "You are an image prompt enhancer. The user will describe an image they want. Your ONLY job is to enhance their description into a detailed image generation prompt and output it as: [GENERATE_IMAGE: your enhanced description]. Output NOTHING else — no explanation, no markdown, no headers, no technical specs. Just the single [GENERATE_IMAGE: ...] tag.";
+
+const STORY_INSTRUCTION =
+  `You are a visual storyboard creator. The user describes an action or scene. Your job is to break it into sequential visual moments and output ONLY [GENERATE_IMAGE: ...] tags, one per scene. Each tag should describe a single frame/moment with enough visual detail to generate an image. Include character appearance, pose, camera angle, setting. Output NOTHING else — no text, no explanation, no numbering. Just the tags, one per line. Generate between 2 and 3 scenes.`;
+
+const SCENE_INSTRUCTION =
+  `You are a scene visualizer. Read the entire conversation above carefully. Your job is to generate a single [GENERATE_IMAGE: ...] tag that visually captures the current moment/scenario being discussed. Include character appearances, poses, setting, mood, lighting. Output NOTHING else — just the single [GENERATE_IMAGE: ...] tag.`;
+
 function useChatThreadRuntime() {
   const { thinking, effectivePrompt, imageMode } = useAIModes();
 
   let systemPrompt = effectivePrompt;
   if (imageMode === "ai") {
-    systemPrompt = (effectivePrompt ? effectivePrompt + "\n\n" : "") +
-      "You can generate images. When you want to show the user an image, write ONLY this tag on its own line: [GENERATE_IMAGE: your detailed image description]. Do NOT write markdown, do NOT explain the image, do NOT add technical specs. Just the tag. The system will generate and display the image automatically.";
+    systemPrompt = (effectivePrompt ? effectivePrompt + "\n\n" : "") + IMAGE_TAG_INSTRUCTION;
   } else if (imageMode === "image") {
-    systemPrompt = "You are an image prompt enhancer. The user will describe an image they want. Your ONLY job is to enhance their description into a detailed image generation prompt and output it as: [GENERATE_IMAGE: your enhanced description]. Output NOTHING else — no explanation, no markdown, no headers, no technical specs. Just the single [GENERATE_IMAGE: ...] tag.";
+    systemPrompt = IMAGE_ONLY_INSTRUCTION;
   }
 
   const transport = useMemo(
@@ -147,6 +158,8 @@ const ModelInfoButton = () => {
     </div>
   );
 };
+
+export { STORY_INSTRUCTION, SCENE_INSTRUCTION, IMAGE_TAG_INSTRUCTION, IMAGE_ONLY_INSTRUCTION };
 
 export const Assistant = () => {
   return (

@@ -22,9 +22,31 @@ function extractBase64(data: unknown): string {
   return Buffer.from(data as ArrayBuffer).toString("base64");
 }
 
+const STORY_SYSTEM = `You are a visual storyboard creator. The user describes an action or scene. Your job is to break it into sequential visual moments and output ONLY [GENERATE_IMAGE: ...] tags, one per scene. Each tag should describe a single frame/moment with enough visual detail to generate an image. Include character appearance, pose, camera angle, setting. Output NOTHING else — no text, no explanation, no numbering. Just the tags, one per line. Generate between 2 and 3 scenes.`;
+
+const SCENE_SYSTEM = `You are a scene visualizer. Read the entire conversation above carefully. Your job is to generate a single [GENERATE_IMAGE: ...] tag that visually captures the current moment/scenario being discussed. Include character appearances, poses, setting, mood, lighting. Output NOTHING else — just the single [GENERATE_IMAGE: ...] tag.`;
+
+const IMAGE_SYSTEM = `You are an image prompt enhancer. The user will describe an image they want. Your ONLY job is to enhance their description into a detailed image generation prompt and output it as: [GENERATE_IMAGE: your enhanced description]. Output NOTHING else — no explanation, no markdown, no headers, no technical specs. Just the single [GENERATE_IMAGE: ...] tag.`;
+
+function detectAtCommand(messages: UIMessage[]): { command: string | null; cleanedText: string } {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUser) return { command: null, cleanedText: "" };
+
+  const text = Array.isArray(lastUser.parts)
+    ? lastUser.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join("")
+    : "";
+
+  const match = text.match(/^@(image|story|scene)\s*/i);
+  if (!match) return { command: null, cleanedText: text };
+
+  return {
+    command: match[1].toLowerCase(),
+    cleanedText: text.slice(match[0].length).trim(),
+  };
+}
+
 export async function POST(req: Request) {
   const enableThinking = req.headers.get("x-enable-thinking") === "1";
-  console.log("[chat] enableThinking =", enableThinking, "| header =", req.headers.get("x-enable-thinking"), "| sending to LM Studio: enable_thinking =", enableThinking);
 
   const customSystemPrompt = req.headers.get("x-system-prompt");
   const systemPromptFromHeader = customSystemPrompt
@@ -40,8 +62,19 @@ export async function POST(req: Request) {
     tools?: Record<string, { description?: string; parameters: JSONSchema7 }>;
   } = await req.json();
 
+  // Detect @ commands and override system prompt
+  const { command: atCommand, cleanedText: atText } = detectAtCommand(messages);
+  let effectiveSystem = systemPromptFromHeader || system;
+
+  if (atCommand === "story") {
+    effectiveSystem = STORY_SYSTEM;
+  } else if (atCommand === "scene") {
+    effectiveSystem = SCENE_SYSTEM;
+  } else if (atCommand === "image") {
+    effectiveSystem = IMAGE_SYSTEM;
+  }
+
   const modelMessages = await convertToModelMessages(messages);
-  const effectiveSystem = systemPromptFromHeader || system;
 
   const allMessages = [
     ...(effectiveSystem ? [{ role: "system" as const, content: effectiveSystem }] : []),
@@ -95,6 +128,22 @@ export async function POST(req: Request) {
       return { role: m.role, content: parts };
     }),
   ];
+
+  // Clean @ prefix from the last user message
+  if (atCommand) {
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i];
+      if (m.role === "user") {
+        if (typeof m.content === "string") {
+          const cleaned = m.content.replace(/^@(image|story|scene)\s*/i, "").trim();
+          m.content = (atCommand === "scene" && !cleaned)
+            ? "Visualize the current scene from our conversation."
+            : cleaned;
+        }
+        break;
+      }
+    }
+  }
 
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
@@ -216,10 +265,9 @@ export async function POST(req: Request) {
             // new thread
           }
 
-          const title = firstText;
           const saved = {
             id: threadId,
-            title: existing.title || title,
+            title: existing.title || firstText,
             messages: messages.map((m) => ({
               id: m.id,
               role: m.role,
@@ -235,7 +283,7 @@ export async function POST(req: Request) {
           };
           await fs.writeFile(filePath, JSON.stringify(saved, null, 2));
         } catch {
-          // silently fail — don't break the response
+          // silently fail
         }
       },
     }),

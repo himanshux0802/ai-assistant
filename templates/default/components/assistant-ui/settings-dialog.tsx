@@ -2,7 +2,7 @@
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useAIModes } from "@/hooks/use-ai-modes";
+import { useAIModes, ART_STYLES } from "@/hooks/use-ai-modes";
 import { cn } from "@/lib/utils";
 import {
   CheckIcon,
@@ -10,6 +10,7 @@ import {
   CopyIcon,
   DownloadIcon,
   FolderOpenIcon,
+  ImageIcon,
   PencilIcon,
   PlusIcon,
   Trash2Icon,
@@ -18,6 +19,7 @@ import {
 import { type FC, useCallback, useEffect, useState } from "react";
 
 type SavedThread = { id: string; title: string; updatedAt: string };
+type GalleryImage = { filename: string; prompt: string; timestamp: string; base64: string };
 type SettingsDialogProps = { open: boolean; onOpenChange: (open: boolean) => void };
 
 const JsonViewer: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
@@ -43,11 +45,57 @@ const JsonViewer: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose 
   );
 };
 
+const GalleryModal: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
+  const [images, setImages] = useState<GalleryImage[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetch("/api/generate-image?gallery=1")
+      .then((r) => r.json())
+      .then((data) => setImages(data.images || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="relative max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-lg border bg-background shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <span className="font-medium text-sm">Image Gallery ({images.length})</span>
+          <button onClick={onClose} className="rounded p-1.5 text-muted-foreground hover:bg-muted"><XIcon className="size-4" /></button>
+        </div>
+        <div className="max-h-[75vh] overflow-y-auto p-4">
+          {loading && <p className="py-8 text-center text-muted-foreground text-sm">Loading...</p>}
+          {!loading && images.length === 0 && <p className="py-8 text-center text-muted-foreground text-sm">No images generated yet</p>}
+          {!loading && images.length > 0 && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {images.map((img, i) => (
+                <div key={i} className="group relative overflow-hidden rounded-lg border">
+                  <img src={`data:image/png;base64,${img.base64}`} alt={img.prompt} className="w-full" />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+                    <p className="truncate text-[10px] text-white">{img.prompt}</p>
+                    <p className="text-[9px] text-white/60">{img.timestamp}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) => {
-  const { enabled, setEnabled, activePresetId, setActivePreset, customPrompt, setCustomPrompt, presets, addPreset, deletePreset } = useAIModes();
+  const { enabled, setEnabled, activePresetId, setActivePreset, customPrompt, setCustomPrompt, presets, addPreset, deletePreset, imageSettings, setImageSettings } = useAIModes();
   const [threads, setThreads] = useState<SavedThread[]>([]);
-  const [tab, setTab] = useState<"general" | "history">("general");
+  const [tab, setTab] = useState<"general" | "image" | "history">("general");
   const [showJson, setShowJson] = useState(false);
+  const [showGallery, setShowGallery] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPrompt, setNewPrompt] = useState("");
@@ -65,14 +113,15 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
   return (
     <>
       <JsonViewer open={showJson} onClose={() => setShowJson(false)} />
+      <GalleryModal open={showGallery} onClose={() => setShowGallery(false)} />
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-lg">
           <DialogTitle className="font-semibold text-lg">Customize Skyler</DialogTitle>
           <div className="flex items-center justify-between border-b">
             <div className="flex gap-1">
-              {(["general", "history"] as const).map((t) => (
+              {(["general", "image", "history"] as const).map((t) => (
                 <button key={t} type="button" onClick={() => setTab(t)} className={cn("px-3 py-1.5 font-medium text-sm transition-colors", tab === t ? "border-primary border-b-2 text-primary" : "text-muted-foreground hover:text-foreground")}>
-                  {t === "general" ? "Instructions" : "Chat History"}
+                  {t === "general" ? "Instructions" : t === "image" ? "Image" : "Chat History"}
                 </button>
               ))}
             </div>
@@ -85,8 +134,6 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
                 <p className="font-medium text-sm">Instructions</p>
                 <p className="text-muted-foreground text-xs">Choose how Skyler should behave</p>
               </div>
-
-              {/* Preset buttons — always visible */}
               <div className="flex flex-wrap gap-1.5">
                 <button type="button" onClick={() => { setEnabled(false); setActivePreset(null); }}
                   className={cn("flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-all", !enabled ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}>
@@ -116,7 +163,6 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
                   </button>
                 )}
               </div>
-
               {creating && (
                 <div className="flex flex-col gap-2 rounded-lg border border-dashed p-3">
                   <div className="flex items-center gap-2">
@@ -130,8 +176,6 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
                   </div>
                 </div>
               )}
-
-              {/* Textarea — only when not Default */}
               {enabled && (
                 activePresetId ? (
                   <div className="relative">
@@ -142,6 +186,102 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
                   <textarea value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} placeholder="How should Skyler behave?" className="min-h-28 w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-ring/75 focus:ring-2 focus:ring-ring/20" rows={4} />
                 )
               )}
+            </div>
+          )}
+
+          {tab === "image" && (
+            <div className="flex flex-col gap-4 pt-1">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-sm">Image Generation</p>
+                  <p className="text-muted-foreground text-xs">Configure Perchance settings</p>
+                </div>
+                <button type="button" onClick={() => setShowGallery(true)} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted">
+                  <ImageIcon className="size-3.5" /> Gallery
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-xs text-muted-foreground">Art Style</label>
+                  <select
+                    value={imageSettings.artStyle}
+                    onChange={(e) => setImageSettings({ ...imageSettings, artStyle: e.target.value })}
+                    className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring/75 focus:ring-2 focus:ring-ring/20"
+                  >
+                    <option value="">Default</option>
+                    {ART_STYLES.filter(Boolean).map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-xs text-muted-foreground">Shape</label>
+                  <select
+                    value={imageSettings.shape}
+                    onChange={(e) => setImageSettings({ ...imageSettings, shape: e.target.value })}
+                    className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring/75 focus:ring-2 focus:ring-ring/20"
+                  >
+                    <option value="">Default</option>
+                    <option value="Square">Square</option>
+                    <option value="Portrait">Portrait</option>
+                    <option value="Landscape">Landscape</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-xs text-muted-foreground">Images per prompt</label>
+                <div className="flex gap-2">
+                  {[1, 2, 3].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setImageSettings({ ...imageSettings, imageCount: n })}
+                      className={cn(
+                        "flex-1 rounded-lg border py-2 text-center text-sm font-medium transition-all",
+                        imageSettings.imageCount === n
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {n} {n === 1 ? "image" : "images"}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {imageSettings.imageCount > 1
+                    ? `AI will create ${imageSettings.imageCount} sequential scene variations from your prompt`
+                    : "Single image generation"}
+                </p>
+              </div>
+
+              {(imageSettings.artStyle || imageSettings.shape) && (
+                <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  {imageSettings.artStyle && <span>Style: <span className="font-medium text-foreground">{imageSettings.artStyle}</span></span>}
+                  {imageSettings.artStyle && imageSettings.shape && <span> · </span>}
+                  {imageSettings.shape && <span>Shape: <span className="font-medium text-foreground">{imageSettings.shape}</span></span>}
+                </div>
+              )}
+
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="mb-2 font-medium text-xs">@ Commands</p>
+                <div className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">@image</code>
+                    <span>Generate a single image from your prompt</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">@story</code>
+                    <span>Break prompt into 2-3 sequential scenes</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">@scene</code>
+                    <span>Visualize the current chat moment</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

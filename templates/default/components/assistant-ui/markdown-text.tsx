@@ -10,32 +10,51 @@ import {
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 import { type FC, memo, useState, useEffect, useRef } from "react";
-import { CheckIcon, CopyIcon, Loader2Icon } from "lucide-react";
+import { CheckIcon, CopyIcon, DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { useAuiState } from "@assistant-ui/react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 
-// Inline image generator — detects [GENERATE_IMAGE: ...] and renders the image
-const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
-  const [images, setImages] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const called = useRef(false);
+// Global cache so images survive component remounts (tab switching)
+const imageCache = new Map<string, string[]>();
 
-  useEffect(() => {
-    if (called.current) return;
-    called.current = true;
+const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
+  const [images, setImages] = useState<string[]>(imageCache.get(prompt) || []);
+  const [loading, setLoading] = useState(!imageCache.has(prompt));
+  const [error, setError] = useState<string | null>(null);
+  const called = useRef(imageCache.has(prompt));
+
+  const generate = (overridePrompt?: string) => {
+    const p = overridePrompt || prompt;
+    setLoading(true);
+    setError(null);
+
+    let artStyle = "";
+    let shape = "";
+    let imageCount = 1;
+    try {
+      const stored = localStorage.getItem("skyler-image-settings");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        artStyle = parsed.artStyle || "";
+        shape = parsed.shape || "";
+        imageCount = parsed.imageCount || 1;
+      }
+    } catch {}
+
     (async () => {
       try {
         const res = await fetch("/api/generate-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ prompt: p, artStyle, shape, imageCount }),
         });
         const data = await res.json();
         if (data.success && data.images?.length) {
-          setImages(data.images.map((img: any) => `data:image/png;base64,${img.base64}`));
+          const srcs = data.images.map((img: any) => `data:image/png;base64,${img.base64}`);
+          setImages(srcs);
+          imageCache.set(p, srcs);
         } else {
           setError(data.error || "Failed to generate");
         }
@@ -44,7 +63,28 @@ const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
       }
       setLoading(false);
     })();
+  };
+
+  useEffect(() => {
+    if (called.current) return;
+    called.current = true;
+    generate();
   }, [prompt]);
+
+  const downloadImage = (src: string, idx: number) => {
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = `${prompt.slice(0, 30).replace(/[^a-zA-Z0-9]/g, "_")}_${idx + 1}.png`;
+    a.click();
+  };
+
+  const copyImage = async (src: string) => {
+    try {
+      const res = await fetch(src);
+      const blob = await res.blob();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    } catch {}
+  };
 
   if (loading) {
     return (
@@ -55,14 +95,39 @@ const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
     );
   }
   if (error) {
-    return <div className="my-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs">{error}</div>;
+    return (
+      <div className="my-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+        <p className="text-destructive text-xs">{error}</p>
+        <button onClick={() => generate()} className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
+          <RefreshCwIcon className="size-3" /> Retry
+        </button>
+      </div>
+    );
   }
   if (images.length > 0) {
     return (
-      <div className={`my-3 grid gap-2 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-        {images.map((src, i) => (
-          <img key={i} src={src} alt={`${prompt} ${i + 1}`} className="w-full rounded-lg border" />
-        ))}
+      <div className="my-3 flex flex-col gap-2">
+        <div className={`grid gap-2 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+          {images.map((src, i) => (
+            <div key={i} className="group relative overflow-hidden rounded-lg border">
+              <img src={src} alt={`${prompt} ${i + 1}`} className="w-full" />
+              <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button onClick={() => copyImage(src)} className="rounded-md bg-black/60 p-1.5 text-white hover:bg-black/80" title="Copy">
+                  <CopyIcon className="size-3" />
+                </button>
+                <button onClick={() => downloadImage(src, i)} className="rounded-md bg-black/60 p-1.5 text-white hover:bg-black/80" title="Download">
+                  <DownloadIcon className="size-3" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={() => { imageCache.delete(prompt); generate(); }}
+          className="flex items-center gap-1 self-start rounded-md px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <RefreshCwIcon className="size-3" /> Regenerate
+        </button>
       </div>
     );
   }
@@ -112,23 +177,56 @@ export const MarkdownText: FC = () => {
       .join("");
   });
 
-  const imageMatch = text.match(/\[GENERATE_IMAGE:\s*([^\]]+)\]/);
+  // Find ALL image tags
+  const imageMatches = [...text.matchAll(/\[GENERATE_IMAGE:\s*([^\]]+)\]/g)];
 
-  if (imageMatch) {
-    const prompt = imageMatch[1].trim();
-    const before = text.slice(0, imageMatch.index).trim();
-    const after = text.slice((imageMatch.index || 0) + imageMatch[0].length).trim();
+  if (imageMatches.length === 0) return <MarkdownTextBase />;
 
-    return (
-      <>
-        {before && <div className="aui-md">{before}</div>}
-        <InlineImage prompt={prompt} />
-        {after && <div className="aui-md">{after}</div>}
-      </>
-    );
+  // Story mode: multiple images with scene labels
+  if (imageMatches.length > 1) {
+    const elements: React.ReactNode[] = [];
+    let lastEnd = 0;
+
+    imageMatches.forEach((match, i) => {
+      const before = text.slice(lastEnd, match.index).trim();
+      if (before) elements.push(<div key={`t${i}`} className="aui-md">{before}</div>);
+
+      elements.push(
+        <div key={`s${i}`} className="my-2">
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              Scene {i + 1}
+            </span>
+            <span className="text-[10px] text-muted-foreground truncate max-w-xs">
+              {match[1].trim().slice(0, 60)}
+            </span>
+          </div>
+          <InlineImage prompt={match[1].trim()} />
+        </div>,
+      );
+
+      lastEnd = (match.index || 0) + match[0].length;
+    });
+
+    const trailing = text.slice(lastEnd).trim();
+    if (trailing) elements.push(<div key="trail" className="aui-md">{trailing}</div>);
+
+    return <div className="flex flex-col gap-1">{elements}</div>;
   }
 
-  return <MarkdownTextBase />;
+  // Single image
+  const match = imageMatches[0];
+  const prompt = match[1].trim();
+  const before = text.slice(0, match.index).trim();
+  const after = text.slice((match.index || 0) + match[0].length).trim();
+
+  return (
+    <>
+      {before && <div className="aui-md">{before}</div>}
+      <InlineImage prompt={prompt} />
+      {after && <div className="aui-md">{after}</div>}
+    </>
+  );
 };
 
 const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {

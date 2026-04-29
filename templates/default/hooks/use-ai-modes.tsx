@@ -37,13 +37,27 @@ const STORAGE_IMAGE_SETTINGS = "skyler-image-settings";
 export type ImageSettings = {
   artStyle: string;
   shape: string;
+  imageCount: number;
   guidanceScale: string;
   negativePrompt: string;
 };
 
+export const ART_STYLES = [
+  "", "Painted Anime", "Casual Photo", "Cinematic", "Digital Painting", "Concept Art",
+  "No style", "3D Disney Character", "2D Disney Character", "Disney Sketch",
+  "Concept Sketch", "Painterly", "Oil Painting", "Oil Painting - Realism",
+  "Oil Painting - Old", "Oil Painting - 70s Pulp", "Professional Photo", "Anime",
+  "Drawn Anime", "Anime Screencap", "Cute Anime", "Soft Anime", "Fantasy Painting",
+  "Fantasy Landscape", "Fantasy Portrait", "Studio Ghibli", "50s Enamel Sign",
+  "Vintage Comic", "Franco-Belgian Comic", "Tintin Comic", "Medieval", "Pixel Art",
+  "Furry - Oil", "Furry - Cinematic", "Furry - Painted", "Furry - Drawn",
+  "Cute Figurine", "3D Emoji", "Illustration",
+] as const;
+
 const DEFAULT_IMAGE_SETTINGS: ImageSettings = {
-  artStyle: "Painted Anime Plus",
-  shape: "Portrait(512x768px)",
+  artStyle: "",
+  shape: "",
+  imageCount: 1,
   guidanceScale: "default(7)",
   negativePrompt: "",
 };

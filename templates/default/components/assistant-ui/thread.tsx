@@ -43,9 +43,15 @@ import {
   XIcon,
   ZapIcon,
 } from "lucide-react";
-import { type FC, useState } from "react";
+import { type FC, useCallback, useEffect, useRef, useState } from "react";
 import { useAIModes } from "@/hooks/use-ai-modes";
 import { SettingsDialog } from "@/components/assistant-ui/settings-dialog";
+
+const AT_COMMANDS = [
+  { id: "image", label: "@image", icon: "🖼️", desc: "Generate a single image" },
+  { id: "story", label: "@story", icon: "📖", desc: "Generate sequential scenes" },
+  { id: "scene", label: "@scene", icon: "🎬", desc: "Visualize current chat" },
+] as const;
 
 export const Thread: FC = () => {
   return (
@@ -153,7 +159,123 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
+const AtCommandPopup: FC<{
+  query: string;
+  visible: boolean;
+  onSelect: (cmd: string) => void;
+  selectedIndex: number;
+}> = ({ query, visible, onSelect, selectedIndex }) => {
+  if (!visible) return null;
+
+  const filtered = AT_COMMANDS.filter((c) =>
+    c.id.startsWith(query.toLowerCase()),
+  );
+
+  if (filtered.length === 0) return null;
+
+  return (
+    <div className="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
+      {filtered.map((cmd, i) => (
+        <button
+          key={cmd.id}
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onSelect(cmd.id);
+          }}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
+            i === selectedIndex ? "bg-accent" : "hover:bg-accent/50",
+          )}
+        >
+          <span className="text-base">{cmd.icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-xs">{cmd.label}</div>
+            <div className="text-[10px] text-muted-foreground">{cmd.desc}</div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const Composer: FC = () => {
+  const [atQuery, setAtQuery] = useState("");
+  const [showAtPopup, setShowAtPopup] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const handleAtSelect = useCallback((cmdId: string) => {
+    const input = inputRef.current || document.querySelector<HTMLTextAreaElement>(".aui-composer-input");
+    if (!input) return;
+
+    const val = input.value;
+    const atPos = val.lastIndexOf("@");
+    if (atPos === -1) return;
+
+    const before = val.slice(0, atPos);
+    const after = val.slice(atPos).replace(/^@\S*/, "");
+    const newVal = `${before}@${cmdId}${after.startsWith(" ") ? after : " " + after.trimStart()}`;
+
+    // Set value via native setter to trigger React's onChange
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    if (nativeSetter) {
+      nativeSetter.call(input, newVal);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    setShowAtPopup(false);
+    setAtQuery("");
+    input.focus();
+
+    // Move cursor after the command
+    const cursorPos = before.length + cmdId.length + 2;
+    requestAnimationFrame(() => {
+      input.setSelectionRange(cursorPos, cursorPos);
+    });
+  }, []);
+
+  const handleInputChange = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
+    const val = (e.target as HTMLTextAreaElement).value;
+    const cursorPos = (e.target as HTMLTextAreaElement).selectionStart || 0;
+    const textBeforeCursor = val.slice(0, cursorPos);
+
+    // Check if we're typing an @ command
+    const atMatch = textBeforeCursor.match(/@(\w*)$/);
+    if (atMatch) {
+      const q = atMatch[1];
+      setAtQuery(q);
+      setShowAtPopup(true);
+      setSelectedIdx(0);
+    } else {
+      setShowAtPopup(false);
+      setAtQuery("");
+    }
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!showAtPopup) return;
+
+    const filtered = AT_COMMANDS.filter((c) =>
+      c.id.startsWith(atQuery.toLowerCase()),
+    );
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIdx((i) => (i + 1) % filtered.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIdx((i) => (i - 1 + filtered.length) % filtered.length);
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      if (filtered.length > 0) {
+        e.preventDefault();
+        handleAtSelect(filtered[selectedIdx]?.id || filtered[0].id);
+      }
+    } else if (e.key === "Escape") {
+      setShowAtPopup(false);
+    }
+  }, [showAtPopup, atQuery, selectedIdx, handleAtSelect]);
+
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -161,7 +283,6 @@ const Composer: FC = () => {
       if (item.type.startsWith("image/")) {
         const file = item.getAsFile();
         if (file) {
-          // Trigger the attachment adapter by dispatching a custom event
           const input = document.querySelector<HTMLInputElement>(".aui-composer-input");
           if (input) {
             const dt = new DataTransfer();
@@ -179,16 +300,25 @@ const Composer: FC = () => {
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"
-          className="flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-background p-(--composer-padding) transition-shadow focus-within:border-ring/75 focus-within:ring-2 focus-within:ring-ring/20 data-[dragging=true]:border-ring data-[dragging=true]:border-dashed data-[dragging=true]:bg-accent/50"
+          className="relative flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-background p-(--composer-padding) transition-shadow focus-within:border-ring/75 focus-within:ring-2 focus-within:ring-ring/20 data-[dragging=true]:border-ring data-[dragging=true]:border-dashed data-[dragging=true]:bg-accent/50"
           onPaste={handlePaste}
         >
           <ComposerAttachments />
+          <AtCommandPopup
+            query={atQuery}
+            visible={showAtPopup}
+            onSelect={handleAtSelect}
+            selectedIndex={selectedIdx}
+          />
           <ComposerPrimitive.Input
-            placeholder="Send a message..."
+            placeholder="Send a message... (type @ for commands)"
             className="aui-composer-input max-h-32 min-h-10 w-full resize-none bg-transparent px-1.75 py-1 text-sm outline-none placeholder:text-muted-foreground/80"
             rows={1}
             autoFocus
             aria-label="Message input"
+            onInput={handleInputChange}
+            onKeyDown={handleKeyDown}
+            ref={(el: any) => { inputRef.current = el; }}
           />
           <ComposerAction />
         </div>
