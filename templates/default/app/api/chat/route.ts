@@ -5,10 +5,6 @@ import {
   createUIMessageStreamResponse,
   type UIMessage,
 } from "ai";
-import fs from "node:fs/promises";
-import path from "node:path";
-
-const HISTORY_DIR = path.join(process.cwd(), "..", "chat_history");
 
 let partCounter = 0;
 function nextId() {
@@ -36,7 +32,7 @@ function detectAtCommand(messages: UIMessage[]): { command: string | null; clean
     ? lastUser.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join("")
     : "";
 
-  const match = text.match(/^@(image|story|scene)\s*/i);
+  const match = text.match(/^@(image|story|scene|enhance|raw)\s*/i);
   if (!match) return { command: null, cleanedText: text };
 
   return {
@@ -44,6 +40,10 @@ function detectAtCommand(messages: UIMessage[]): { command: string | null; clean
     cleanedText: text.slice(match[0].length).trim(),
   };
 }
+
+const ENHANCE_SYSTEM = `You are in ultra-deep thinking mode. Think extremely carefully, consider every angle, every edge case, every nuance. Take your time. Provide the most thorough, well-reasoned, and comprehensive response possible. Do not rush. Quality over speed.`;
+
+const RAW_SYSTEM = `The user wants to generate an image directly. Take their exact description and output it as: [GENERATE_IMAGE: their exact text unchanged]. Do NOT enhance, modify, or add anything. Just wrap their text in the tag exactly as they wrote it.`;
 
 export async function POST(req: Request) {
   const enableThinking = req.headers.get("x-enable-thinking") === "1";
@@ -65,6 +65,7 @@ export async function POST(req: Request) {
   // Detect @ commands and override system prompt
   const { command: atCommand, cleanedText: atText } = detectAtCommand(messages);
   let effectiveSystem = systemPromptFromHeader || system;
+  let forceThinking = false;
 
   if (atCommand === "story") {
     effectiveSystem = STORY_SYSTEM;
@@ -72,6 +73,11 @@ export async function POST(req: Request) {
     effectiveSystem = SCENE_SYSTEM;
   } else if (atCommand === "image") {
     effectiveSystem = IMAGE_SYSTEM;
+  } else if (atCommand === "enhance") {
+    effectiveSystem = (effectiveSystem ? effectiveSystem + "\n\n" : "") + ENHANCE_SYSTEM;
+    forceThinking = true;
+  } else if (atCommand === "raw") {
+    effectiveSystem = RAW_SYSTEM;
   }
 
   const modelMessages = await convertToModelMessages(messages);
@@ -135,7 +141,7 @@ export async function POST(req: Request) {
       const m = allMessages[i];
       if (m.role === "user") {
         if (typeof m.content === "string") {
-          const cleaned = m.content.replace(/^@(image|story|scene)\s*/i, "").trim();
+          const cleaned = m.content.replace(/^@(image|story|scene|enhance|raw)\s*/i, "").trim();
           m.content = (atCommand === "scene" && !cleaned)
             ? "Visualize the current scene from our conversation."
             : cleaned;
@@ -160,7 +166,7 @@ export async function POST(req: Request) {
               model: process.env.LM_STUDIO_MODEL,
               messages: allMessages,
               stream: true,
-              chat_template_kwargs: { enable_thinking: enableThinking },
+              chat_template_kwargs: { enable_thinking: forceThinking || enableThinking },
             }),
           },
         );
@@ -237,53 +243,6 @@ export async function POST(req: Request) {
         }
         if (textId) {
           writer.write({ type: "text-end", id: textId });
-        }
-
-        // Auto-save chat history
-        try {
-          await fs.mkdir(HISTORY_DIR, { recursive: true });
-          const threadId =
-            req.headers.get("x-thread-id") || `thread_${Date.now()}`;
-          const firstUserMsg = messages.find((m) => m.role === "user");
-          const firstText = firstUserMsg
-            ? (Array.isArray(firstUserMsg.parts)
-                ? (
-                    firstUserMsg.parts.find(
-                      (p: any) => p.type === "text",
-                    ) as any
-                  )?.text
-                : "New Chat"
-              )?.slice(0, 80) || "New Chat"
-            : "New Chat";
-
-          const filePath = path.join(HISTORY_DIR, `${threadId}.json`);
-          const now = new Date().toISOString();
-          let existing: any = {};
-          try {
-            existing = JSON.parse(await fs.readFile(filePath, "utf-8"));
-          } catch {
-            // new thread
-          }
-
-          const saved = {
-            id: threadId,
-            title: existing.title || firstText,
-            messages: messages.map((m) => ({
-              id: m.id,
-              role: m.role,
-              content: Array.isArray(m.parts)
-                ? m.parts
-                    .filter((p: any) => p.type === "text")
-                    .map((p: any) => p.text)
-                    .join("")
-                : "",
-            })),
-            createdAt: existing.createdAt || now,
-            updatedAt: now,
-          };
-          await fs.writeFile(filePath, JSON.stringify(saved, null, 2));
-        } catch {
-          // silently fail
         }
       },
     }),

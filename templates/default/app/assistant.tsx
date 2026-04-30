@@ -25,6 +25,7 @@ import { AIModeProvider, useAIModes } from "@/hooks/use-ai-modes";
 import { useMemo, useState } from "react";
 import { createLocalThreadListAdapter } from "@/lib/local-thread-adapter";
 import { InfoIcon, XIcon } from "lucide-react";
+import { CharacterPanel } from "@/components/assistant-ui/character-panel";
 
 const attachmentAdapter = new CompositeAttachmentAdapter([
   new SimpleImageAttachmentAdapter(),
@@ -94,7 +95,8 @@ const AssistantInner = () => {
                 <span className="font-medium text-muted-foreground text-sm">
                   Skyler AI
                 </span>
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-1">
+                  <CharacterPanel />
                   <ModelInfoButton />
                 </div>
               </header>

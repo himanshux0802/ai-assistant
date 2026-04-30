@@ -8,17 +8,12 @@ import {
   CheckIcon,
   CodeIcon,
   CopyIcon,
-  DownloadIcon,
-  FolderOpenIcon,
   ImageIcon,
-  PencilIcon,
   PlusIcon,
-  Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { type FC, useCallback, useEffect, useState } from "react";
+import { type FC, useEffect, useState } from "react";
 
-type SavedThread = { id: string; title: string; updatedAt: string };
 type GalleryImage = { filename: string; prompt: string; timestamp: string; base64: string };
 type SettingsDialogProps = { open: boolean; onOpenChange: (open: boolean) => void };
 
@@ -92,23 +87,13 @@ const GalleryModal: FC<{ open: boolean; onClose: () => void }> = ({ open, onClos
 
 export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) => {
   const { enabled, setEnabled, activePresetId, setActivePreset, customPrompt, setCustomPrompt, presets, addPreset, deletePreset, imageSettings, setImageSettings } = useAIModes();
-  const [threads, setThreads] = useState<SavedThread[]>([]);
-  const [tab, setTab] = useState<"general" | "image" | "history">("general");
+  const [tab, setTab] = useState<"general" | "image">("general");
   const [showJson, setShowJson] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPrompt, setNewPrompt] = useState("");
   const [newColor, setNewColor] = useState("#10b981");
-
-  const loadThreads = useCallback(async () => {
-    try { const res = await fetch("/api/threads"); if (res.ok) setThreads(await res.json()); } catch {}
-  }, []);
-  useEffect(() => { if (open && tab === "history") loadThreads(); }, [open, tab, loadThreads]);
-
-  const deleteThread = async (id: string) => { await fetch(`/api/threads?id=${id}`, { method: "DELETE" }); setThreads((t) => t.filter((x) => x.id !== id)); };
-  const renameThread = async (id: string, cur: string) => { const n = prompt("Rename chat:", cur); if (!n || n === cur) return; await fetch("/api/threads", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, title: n }) }); setThreads((t) => t.map((x) => (x.id === id ? { ...x, title: n } : x))); };
-  const exportThread = async (id: string, title: string) => { const res = await fetch(`/api/threads?id=${id}`); if (!res.ok) return; const data = await res.json(); const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${title.replace(/[^a-zA-Z0-9]/g, "_")}.json`; a.click(); URL.revokeObjectURL(url); };
 
   return (
     <>
@@ -119,9 +104,9 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
           <DialogTitle className="font-semibold text-lg">Customize Skyler</DialogTitle>
           <div className="flex items-center justify-between border-b">
             <div className="flex gap-1">
-              {(["general", "image", "history"] as const).map((t) => (
+              {(["general", "image"] as const).map((t) => (
                 <button key={t} type="button" onClick={() => setTab(t)} className={cn("px-3 py-1.5 font-medium text-sm transition-colors", tab === t ? "border-primary border-b-2 text-primary" : "text-muted-foreground hover:text-foreground")}>
-                  {t === "general" ? "Instructions" : t === "image" ? "Image" : "Chat History"}
+                  {t === "general" ? "Instructions" : "Image"}
                 </button>
               ))}
             </div>
@@ -204,25 +189,14 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
                   <label className="font-medium text-xs text-muted-foreground">Art Style</label>
-                  <select
-                    value={imageSettings.artStyle}
-                    onChange={(e) => setImageSettings({ ...imageSettings, artStyle: e.target.value })}
-                    className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring/75 focus:ring-2 focus:ring-ring/20"
-                  >
+                  <select value={imageSettings.artStyle} onChange={(e) => setImageSettings({ ...imageSettings, artStyle: e.target.value })} className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring/75 focus:ring-2 focus:ring-ring/20">
                     <option value="">Default</option>
-                    {ART_STYLES.filter(Boolean).map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
+                    {ART_STYLES.filter(Boolean).map((s) => (<option key={s} value={s}>{s}</option>))}
                   </select>
                 </div>
-
                 <div className="flex flex-col gap-1.5">
                   <label className="font-medium text-xs text-muted-foreground">Shape</label>
-                  <select
-                    value={imageSettings.shape}
-                    onChange={(e) => setImageSettings({ ...imageSettings, shape: e.target.value })}
-                    className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring/75 focus:ring-2 focus:ring-ring/20"
-                  >
+                  <select value={imageSettings.shape} onChange={(e) => setImageSettings({ ...imageSettings, shape: e.target.value })} className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring/75 focus:ring-2 focus:ring-ring/20">
                     <option value="">Default</option>
                     <option value="Square">Square</option>
                     <option value="Portrait">Portrait</option>
@@ -235,26 +209,12 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
                 <label className="font-medium text-xs text-muted-foreground">Images per prompt</label>
                 <div className="flex gap-2">
                   {[1, 2, 3].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setImageSettings({ ...imageSettings, imageCount: n })}
-                      className={cn(
-                        "flex-1 rounded-lg border py-2 text-center text-sm font-medium transition-all",
-                        imageSettings.imageCount === n
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:bg-muted",
-                      )}
-                    >
+                    <button key={n} type="button" onClick={() => setImageSettings({ ...imageSettings, imageCount: n })}
+                      className={cn("flex-1 rounded-lg border py-2 text-center text-sm font-medium transition-all", imageSettings.imageCount === n ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}>
                       {n} {n === 1 ? "image" : "images"}
                     </button>
                   ))}
                 </div>
-                <p className="text-[10px] text-muted-foreground">
-                  {imageSettings.imageCount > 1
-                    ? `AI will create ${imageSettings.imageCount} sequential scene variations from your prompt`
-                    : "Single image generation"}
-                </p>
               </div>
 
               {(imageSettings.artStyle || imageSettings.shape) && (
@@ -268,48 +228,20 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
               <div className="rounded-lg border bg-muted/20 p-3">
                 <p className="mb-2 font-medium text-xs">@ Commands</p>
                 <div className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">@image</code>
-                    <span>Generate a single image from your prompt</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">@story</code>
-                    <span>Break prompt into 2-3 sequential scenes</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">@scene</code>
-                    <span>Visualize the current chat moment</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {tab === "history" && (
-            <div className="flex flex-col gap-2 pt-2">
-              {threads.length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground text-sm">No saved chats yet</p>
-              ) : (
-                <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-                  {threads.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-sm">{t.title}</p>
-                        <p className="text-muted-foreground text-xs">{new Date(t.updatedAt).toLocaleDateString()}</p>
-                      </div>
-                      <div className="flex gap-1">
-                        <button type="button" onClick={() => renameThread(t.id, t.title)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="Rename"><PencilIcon className="size-3.5" /></button>
-                        <button type="button" onClick={() => exportThread(t.id, t.title)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="Export"><DownloadIcon className="size-3.5" /></button>
-                        <button type="button" onClick={() => deleteThread(t.id)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Delete"><Trash2Icon className="size-3.5" /></button>
-                      </div>
+                  {[
+                    ["@image", "Generate a single image"],
+                    ["@story", "Break into 2-3 sequential scenes"],
+                    ["@scene", "Visualize current chat moment"],
+                    ["@enhance", "Ultra deep thinking for one message"],
+                    ["@raw", "Send exact prompt to image gen"],
+                  ].map(([cmd, desc]) => (
+                    <div key={cmd} className="flex items-center gap-2">
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{cmd}</code>
+                      <span>{desc}</span>
                     </div>
                   ))}
                 </div>
-              )}
-              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-muted-foreground text-sm transition-colors hover:bg-muted">
-                <FolderOpenIcon className="size-4" /> Import chat from JSON
-                <input type="file" accept=".json" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { const text = await file.text(); const data = JSON.parse(text); if (data.id && data.messages) { await fetch("/api/threads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }); loadThreads(); } } catch {} e.target.value = ""; }} />
-              </label>
+              </div>
             </div>
           )}
         </DialogContent>

@@ -14,6 +14,7 @@ import { CheckIcon, CopyIcon, DownloadIcon, Loader2Icon, RefreshCwIcon } from "l
 import { useAuiState } from "@assistant-ui/react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { ImageViewer } from "@/components/assistant-ui/image-viewer";
 import { cn } from "@/lib/utils";
 
 // Global cache so images survive component remounts (tab switching)
@@ -24,6 +25,7 @@ const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
   const [loading, setLoading] = useState(!imageCache.has(prompt));
   const [error, setError] = useState<string | null>(null);
   const called = useRef(imageCache.has(prompt));
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   const generate = (overridePrompt?: string) => {
     const p = overridePrompt || prompt;
@@ -33,6 +35,7 @@ const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
     let artStyle = "";
     let shape = "";
     let imageCount = 1;
+    let charPrompt = "";
     try {
       const stored = localStorage.getItem("skyler-image-settings");
       if (stored) {
@@ -41,14 +44,26 @@ const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
         shape = parsed.shape || "";
         imageCount = parsed.imageCount || 1;
       }
+      const charStored = localStorage.getItem("skyler-character");
+      if (charStored) {
+        const c = JSON.parse(charStored);
+        const parts: string[] = [];
+        if (c.name) parts.push(`Character: ${c.name}`);
+        if (c.appearance) parts.push(`Appearance: ${c.appearance}`);
+        if (c.clothing) parts.push(`Clothing: ${c.clothing}`);
+        if (c.other) parts.push(c.other);
+        charPrompt = parts.join(". ");
+      }
     } catch {}
+
+    const fullPrompt = charPrompt ? `${charPrompt}. ${p}` : p;
 
     (async () => {
       try {
         const res = await fetch("/api/generate-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: p, artStyle, shape, imageCount }),
+          body: JSON.stringify({ prompt: fullPrompt, artStyle, shape, imageCount }),
         });
         const data = await res.json();
         if (data.success && data.images?.length) {
@@ -110,7 +125,12 @@ const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
         <div className={`grid gap-2 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
           {images.map((src, i) => (
             <div key={i} className="group relative overflow-hidden rounded-lg border">
-              <img src={src} alt={`${prompt} ${i + 1}`} className="w-full" />
+              <img
+                src={src}
+                alt={`${prompt} ${i + 1}`}
+                className="w-full cursor-pointer"
+                onClick={() => setViewerIndex(i)}
+              />
               <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                 <button onClick={() => copyImage(src)} className="rounded-md bg-black/60 p-1.5 text-white hover:bg-black/80" title="Copy">
                   <CopyIcon className="size-3" />
@@ -128,6 +148,9 @@ const InlineImage: FC<{ prompt: string }> = ({ prompt }) => {
         >
           <RefreshCwIcon className="size-3" /> Regenerate
         </button>
+        {viewerIndex !== null && (
+          <ImageViewer images={images} initialIndex={viewerIndex} onClose={() => setViewerIndex(null)} />
+        )}
       </div>
     );
   }

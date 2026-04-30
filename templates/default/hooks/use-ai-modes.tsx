@@ -33,6 +33,7 @@ const STORAGE_ENABLED = "skyler-prompt-enabled";
 const STORAGE_THINKING = "skyler-thinking";
 const STORAGE_IMAGE_MODE = "skyler-image-mode";
 const STORAGE_IMAGE_SETTINGS = "skyler-image-settings";
+const STORAGE_CHARACTER = "skyler-character";
 
 export type ImageSettings = {
   artStyle: string;
@@ -41,6 +42,29 @@ export type ImageSettings = {
   guidanceScale: string;
   negativePrompt: string;
 };
+
+export type CharacterTemplate = {
+  name: string;
+  appearance: string;
+  clothing: string;
+  other: string;
+};
+
+const DEFAULT_CHARACTER: CharacterTemplate = {
+  name: "",
+  appearance: "",
+  clothing: "",
+  other: "",
+};
+
+export function buildCharacterPrompt(c: CharacterTemplate): string {
+  const parts: string[] = [];
+  if (c.name) parts.push(`Character: ${c.name}`);
+  if (c.appearance) parts.push(`Appearance: ${c.appearance}`);
+  if (c.clothing) parts.push(`Clothing: ${c.clothing}`);
+  if (c.other) parts.push(c.other);
+  return parts.join(". ");
+}
 
 export const ART_STYLES = [
   "", "Painted Anime", "Casual Photo", "Cinematic", "Digital Painting", "Concept Art",
@@ -79,6 +103,8 @@ type ContextType = {
   setImageMode: (m: ImageMode) => void;
   imageSettings: ImageSettings;
   setImageSettings: (s: ImageSettings) => void;
+  character: CharacterTemplate;
+  setCharacter: (c: CharacterTemplate) => void;
 };
 
 const Ctx = createContext<ContextType>({
@@ -98,6 +124,8 @@ const Ctx = createContext<ContextType>({
   setImageMode: () => {},
   imageSettings: DEFAULT_IMAGE_SETTINGS,
   setImageSettings: () => {},
+  character: DEFAULT_CHARACTER,
+  setCharacter: () => {},
 });
 
 export const useAIModes = () => useContext(Ctx);
@@ -110,6 +138,7 @@ export const AIModeProvider = ({ children }: { children: ReactNode }) => {
   const [thinking, setThinking] = useState(false);
   const [imageMode, setImageModeState] = useState<ImageMode>("off");
   const [imageSettings, setImageSettingsState] = useState<ImageSettings>(DEFAULT_IMAGE_SETTINGS);
+  const [character, setCharacterState] = useState<CharacterTemplate>(DEFAULT_CHARACTER);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -123,6 +152,8 @@ export const AIModeProvider = ({ children }: { children: ReactNode }) => {
       if (storedPresets) setCustomPresets(JSON.parse(storedPresets));
       const storedImgSettings = localStorage.getItem(STORAGE_IMAGE_SETTINGS);
       if (storedImgSettings) setImageSettingsState(JSON.parse(storedImgSettings));
+      const storedChar = localStorage.getItem(STORAGE_CHARACTER);
+      if (storedChar) setCharacterState(JSON.parse(storedChar));
     } catch {}
     setLoaded(true);
   }, []);
@@ -134,6 +165,7 @@ export const AIModeProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => { if (loaded) localStorage.setItem(STORAGE_PRESETS, JSON.stringify(customPresets)); }, [customPresets, loaded]);
   useEffect(() => { if (loaded) localStorage.setItem(STORAGE_IMAGE_MODE, imageMode); }, [imageMode, loaded]);
   useEffect(() => { if (loaded) localStorage.setItem(STORAGE_IMAGE_SETTINGS, JSON.stringify(imageSettings)); }, [imageSettings, loaded]);
+  useEffect(() => { if (loaded) localStorage.setItem(STORAGE_CHARACTER, JSON.stringify(character)); }, [character, loaded]);
 
   const presets = [...BUILTIN_PRESETS, ...customPresets];
 
@@ -153,6 +185,7 @@ export const AIModeProvider = ({ children }: { children: ReactNode }) => {
   const toggleThinking = useCallback(() => setThinking((v) => !v), []);
   const setImageMode = useCallback((m: ImageMode) => setImageModeState(m), []);
   const setImageSettings = useCallback((s: ImageSettings) => setImageSettingsState(s), []);
+  const setCharacter = useCallback((c: CharacterTemplate) => setCharacterState(c), []);
 
   return (
     <Ctx.Provider
@@ -165,6 +198,7 @@ export const AIModeProvider = ({ children }: { children: ReactNode }) => {
         thinking, toggleThinking,
         imageMode, setImageMode,
         imageSettings, setImageSettings,
+        character, setCharacter,
       }}
     >
       {children}

@@ -39,6 +39,7 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
+  SettingsIcon,
   SquareIcon,
   XIcon,
   ZapIcon,
@@ -46,11 +47,14 @@ import {
 import { type FC, useCallback, useEffect, useRef, useState } from "react";
 import { useAIModes } from "@/hooks/use-ai-modes";
 import { SettingsDialog } from "@/components/assistant-ui/settings-dialog";
+import { CharacterPanel } from "@/components/assistant-ui/character-panel";
 
 const AT_COMMANDS = [
   { id: "image", label: "@image", icon: "🖼️", desc: "Generate a single image" },
   { id: "story", label: "@story", icon: "📖", desc: "Generate sequential scenes" },
   { id: "scene", label: "@scene", icon: "🎬", desc: "Visualize current chat" },
+  { id: "enhance", label: "@enhance", icon: "🧠", desc: "Ultra deep thinking" },
+  { id: "raw", label: "@raw", icon: "⚡", desc: "Direct prompt to image gen" },
 ] as const;
 
 export const Thread: FC = () => {
@@ -330,6 +334,7 @@ const Composer: FC = () => {
 const ImageModeDropdown: FC = () => {
   const { imageMode, setImageMode } = useAIModes();
   const [open, setOpen] = useState(false);
+  const [imgSettingsOpen, setImgSettingsOpen] = useState(false);
   const modes = [
     { id: "off" as const, label: "Off", icon: "\ud83d\udeab", desc: "No images" },
     { id: "ai" as const, label: "AI Mode", icon: "\ud83e\udd16", desc: "AI sends images when it wants" },
@@ -361,9 +366,16 @@ const ImageModeDropdown: FC = () => {
                 {imageMode === m.id && <CheckIcon className="size-3 text-primary" />}
               </button>
             ))}
+            <div className="mx-1 my-0.5 border-t" />
+            <button type="button" onClick={() => { setOpen(false); setImgSettingsOpen(true); }}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent">
+              <SettingsIcon className="size-4 text-muted-foreground" />
+              <span className="text-xs">Image Settings</span>
+            </button>
           </div>
         </>
       )}
+      <SettingsDialog open={imgSettingsOpen} onOpenChange={setImgSettingsOpen} />
     </div>
   );
 };
