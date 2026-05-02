@@ -1,4 +1,4 @@
-# 🚀 Starter Guide — Skyler AI Chat UI
+`# 🚀 Starter Guide — Skyler AI Chat UI
 
 A step-by-step guide for first-time setup after cloning this repo.
 

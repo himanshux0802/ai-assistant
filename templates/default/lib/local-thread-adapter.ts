@@ -1,4 +1,5 @@
-import type { RemoteThreadListAdapter, RemoteThreadMetadata, RemoteThreadListResponse, RemoteThreadInitializeResponse } from "@assistant-ui/react";
+import type { RemoteThreadListAdapter } from "@assistant-ui/react";
+import type { RemoteThreadMetadata, RemoteThreadListResponse, RemoteThreadInitializeResponse } from "@assistant-ui/core";
 import type { ThreadMessage } from "ai";
 
 const STORAGE_KEY = "assistant-threads";

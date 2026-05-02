@@ -6,6 +6,7 @@ ignoredBuiltDependencies:
   - '@modelcontextprotocol/ext-apps'
   - '@mongodb-js/zstd'
   - node-liblzma
+  - sqlite3
 
 onlyBuiltDependencies:
   - '@clerk/shared'
@@ -15,7 +16,6 @@ onlyBuiltDependencies:
   - protobufjs
   - react-grab
   - sharp@0.34.5
-  - sqlite3
   - unrs-resolver@1.11.1
 
 strictDepBuilds: true
